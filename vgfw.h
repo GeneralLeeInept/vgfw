@@ -15,7 +15,7 @@ public:
 
     bool initialize(const wchar_t* name)
     {
-        m_title = wcsdup(name);
+        m_title = _wcsdup(name);
 
         // Create window
         WNDCLASSEXW wc = {};
@@ -120,7 +120,7 @@ public:
             float delta = elapsed_time.count();
 
             wchar_t title[256];
-            swprintf(title, L"%s - %llu us", m_title, (uint64_t)(delta * 1000000.0f));
+            swprintf(title, 256, L"%s - %llu us", m_title, (uint64_t)(delta * 1000000.0f));
             SetWindowText(m_hwnd, title);
 
             // Process Windows messages
@@ -199,6 +199,12 @@ public:
             entry.rgbBlue = rgbx[p] & 255;
             m_palette[p] = entry;
         }
+    }
+
+    void clear_screen(uint8_t c)
+    {
+        uint8_t* backbuffer = m_framebuffer[m_frontbuffer ^ 1];
+        memset(backbuffer, c, 320 * 240);
     }
 
 protected:
