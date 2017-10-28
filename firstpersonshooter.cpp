@@ -96,8 +96,6 @@ class TestVgfw : public Vgfw
             screen_rays[col].y = vry * rn;
         }
 
-        player_facing = degrees_to_radians(180.0f);
-
         return true;
     }
 
@@ -145,18 +143,8 @@ class TestVgfw : public Vgfw
             move_y += cos_facing * delta * 5.0f;
         }
 
-        // Clip movement
-        for (int i = 0; i < 2; ++i)
-        {
-            if (move_x == 0.0f && move_y == 0.0f)
-            {
-                break;
-            }
-
-            int tx = floorf(player_x + move_x);
-            int ty = floorf(player_y + move_y);
-            player_x += move_x;
-            player_y += move_y;
+        player_x += move_x;
+        player_y += move_y;
 
         // Draw
         for (int col = 0; col < 320; ++col)
