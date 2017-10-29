@@ -18,7 +18,7 @@ class TestVgfw : public Vgfw
 
     const float pi = 3.14159265f;
 
-#if 0
+#if 1
     static const int world_size_x = 32;
     static const int world_size_y = 32;
     const char world_map[world_size_y][world_size_x + 1] = 
@@ -141,6 +141,24 @@ class TestVgfw : public Vgfw
         {
             move_x -= sin_facing * delta * 5.0f;
             move_y += cos_facing * delta * 5.0f;
+        }
+
+        // Clip movement
+        if (collision_check(player_x + move_x, player_y + move_y, 0.3f))
+        {
+            if (!collision_check(player_x + move_x, player_y, 0.3f))
+            {
+                move_y = 0.0f;
+            }
+            else if (!collision_check(player_x, player_y + move_y, 0.3f))
+            {
+                move_x = 0.0f;
+            }
+            else
+            {
+                move_x = 0.0f;
+                move_y = 0.0f;
+            }
         }
 
         player_x += move_x;
@@ -324,6 +342,32 @@ class TestVgfw : public Vgfw
     }
 
     void on_destroy() override {}
+
+    bool collision_check(float pos_x, float pos_y, float half_size)
+    {
+        int sx = floor(pos_x - half_size);
+        int sy = floor(pos_y - half_size);
+        int ex = floor(pos_x + half_size);
+        int ey = floor(pos_y + half_size);
+
+        if (sx < 0 || ex < 0 || ex >= world_size_x || ey >= world_size_y)
+        {
+            return true;
+        }
+
+        for (int x = sx; x <= ex; ++x)
+        {
+            for (int y = sy; y <= ey; ++y)
+            {
+                if (world_map[y][x] != '.')
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 };
 
 int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
