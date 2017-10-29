@@ -7,6 +7,11 @@
 class Vgfw
 {
 public:
+    static const int screen_width = 320;
+    static const int screen_height = 240;
+    static const int window_width = screen_width * 2;
+    static const int window_height = screen_height * 2;
+
     virtual ~Vgfw() = default;
 
     virtual bool on_create() = 0;
@@ -33,7 +38,7 @@ public:
 
         DWORD dwExStyle = WS_EX_OVERLAPPEDWINDOW;
         DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
-        RECT client_rect = { 0, 0, 640, 480 };
+        RECT client_rect = { 0, 0, window_width, window_height };
         AdjustWindowRectEx(&client_rect, dwStyle, FALSE, dwExStyle);
         int width = client_rect.right - client_rect.left;
         int height = client_rect.bottom - client_rect.top;
@@ -59,15 +64,9 @@ public:
         // Initialise frame buffer
         for (int i = 0; i < 2; ++i)
         {
-            m_framebuffer[i] = new uint8_t[320 * 240];
-            memset(m_framebuffer[i], 0, 320 * 240);
+            m_framebuffer[i] = new uint8_t[screen_width * screen_height];
+            memset(m_framebuffer[i], 0, screen_width * screen_height);
         }
-
-        // Create DC & bitmap for blitting
-        HDC win_dc = GetDC(m_hwnd);
-        m_hdc = CreateCompatibleDC(win_dc);
-        m_hbitmap = CreateCompatibleBitmap(m_hdc, 320, 240);
-        SelectObject(m_hdc, m_hbitmap);
 
         // Set default palette
         static uint32_t default_palette[256] = {
@@ -182,10 +181,10 @@ public:
 
     void set_pixel(uint32_t x, uint32_t y, uint8_t p)
     {
-        if (x < 320 && y < 240)
+        if (x < screen_width && y < screen_height)
         {
             uint8_t* backbuffer = m_framebuffer[m_frontbuffer ^ 1];
-            backbuffer[x + y * 320] = p;
+            backbuffer[x + y * screen_width] = p;
         }
     }
 
@@ -204,7 +203,7 @@ public:
     void clear_screen(uint8_t c)
     {
         uint8_t* backbuffer = m_framebuffer[m_frontbuffer ^ 1];
-        memset(backbuffer, c, 320 * 240);
+        memset(backbuffer, c, screen_width * screen_height);
     }
 
 protected:
@@ -220,16 +219,6 @@ protected:
 private:
     void shutdown()
     {
-        if (m_hbitmap)
-        {
-            DeleteObject(m_hbitmap);
-        }
-
-        if (m_hdc)
-        {
-            DeleteDC(m_hdc);
-        }
-
         for (int i = 0; i < 2; ++i)
         {
             delete[] m_framebuffer[i];
@@ -255,17 +244,17 @@ private:
         ZeroMemory(bmi, sizeof(BITMAPINFO));
         bmi->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
         bmi->bmiHeader.biBitCount = 8;
-        bmi->bmiHeader.biHeight = -240;
-        bmi->bmiHeader.biWidth = 320;
+        bmi->bmiHeader.biHeight = -screen_height;
+        bmi->bmiHeader.biWidth = screen_width;
         bmi->bmiHeader.biPlanes = 1;
         memcpy(bmi->bmiColors, m_palette, 256 * sizeof(RGBQUAD));
 
         HDC hMemDC = CreateCompatibleDC(hDC);
         HBITMAP hBitmap = CreateDIBSection(hMemDC, bmi, DIB_RGB_COLORS, NULL, NULL, 0);
-        SetDIBits(hDC, hBitmap, 0, 240, m_framebuffer[m_frontbuffer], bmi, DIB_RGB_COLORS);
+        SetDIBits(hDC, hBitmap, 0, screen_height, m_framebuffer[m_frontbuffer], bmi, DIB_RGB_COLORS);
 
         HBITMAP hOldBitmap = (HBITMAP)SelectObject(hMemDC, hBitmap);
-        StretchBlt(hDC, 0, 0, 640, 480, hMemDC, 0, 0, 320, 240, SRCCOPY);
+        StretchBlt(hDC, 0, 0, window_width, window_height, hMemDC, 0, 0, screen_width, screen_height, SRCCOPY);
 
         SelectObject(hMemDC, hBitmap);
         DeleteObject(hBitmap);
@@ -294,8 +283,6 @@ private:
     const wchar_t* m_classname = L"Vgfw";
 
     HWND m_hwnd = NULL;
-    HDC m_hdc = NULL;
-    HBITMAP m_hbitmap = NULL;
     short* m_keystate[2] = {};
     int m_current_keystate = 0;
     uint8_t* m_framebuffer[2] = {};

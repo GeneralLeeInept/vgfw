@@ -80,9 +80,6 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\vgfw.h" />
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="..\firstpersonshooter.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

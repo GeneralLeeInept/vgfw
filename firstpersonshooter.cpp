@@ -14,11 +14,14 @@ class TestVgfw : public Vgfw
     float player_facing = 0.0f;
     float player_x = 3.5f;
     float player_y = 3.5f;
-    Vec2 screen_rays[320];
+    Vec2 screen_rays[screen_width];
 
     const float pi = 3.14159265f;
+    const float player_radius = 0.3f;
+    const float fov_y = 100.0f;
+    const float turn_speed = 90.0f;     // degrees / second
+    const float walk_speed = 5.0f;
 
-#if 1
     static const int world_size_x = 32;
     static const int world_size_y = 32;
     const char world_map[world_size_y][world_size_x + 1] = 
@@ -56,21 +59,6 @@ class TestVgfw : public Vgfw
         "#..............##..............#",
         "################################"
     };
-#else
-    static const int world_size_x = 8;
-    static const int world_size_y = 8;
-    const char world_map[world_size_y][world_size_x + 1] = 
-    {
-        "########",
-        "#......#",
-        "#......#",
-        "#......#",
-        "#......#",
-        "#......#",
-        "#......#",
-        "########"
-    };
-#endif
 
     float degrees_to_radians(float d)
     {
@@ -80,20 +68,19 @@ class TestVgfw : public Vgfw
 
     bool on_create() override
     {
-        // Work out field of view for desired vertical FOV of 60-degrees
-        const float fov_y = degrees_to_radians(90.0f);
-        screen_distance = tanf(fov_y * 0.5f);
-        half_fov_x = atanf(screen_distance * 320.0f / 240.0f);
+        // Work out field of view for desired vertical FOV
+        screen_distance = tanf(degrees_to_radians(fov_y * 0.5f));
+        half_fov_x = atanf(screen_distance * (float)screen_width / (float)screen_height);
 
         // Pre calculate screen space ray directions
-        for (int col = 0; col < 320; ++col)
+        for (int col = 0; col < screen_width; ++col)
         {
             // For each column construct the ray from the player's position through the column.
-            float vrx = screen_distance;
-            float vry = (col - 160.0f) / 160.f;
-            float rn = 1.0f / sqrtf(vrx * vrx + vry * vry);
-            screen_rays[col].x = vrx * rn;
-            screen_rays[col].y = vry * rn;
+            float rx = screen_distance;
+            float ry = (col - screen_width * 0.5f) / (screen_width * 0.5f);
+            float rn = 1.0f / sqrtf(rx * rx + ry * ry);
+            screen_rays[col].x = rx * rn;
+            screen_rays[col].y = ry * rn;
         }
 
         return true;
@@ -107,12 +94,12 @@ class TestVgfw : public Vgfw
         // Turn around
         if (m_keys[L'A'].down)
         {
-            player_facing -= degrees_to_radians(90.0f) * delta;
+            player_facing -= degrees_to_radians(turn_speed) * delta;
         }
 
         if (m_keys[L'D'].down)
         {
-            player_facing += degrees_to_radians(90.0f) * delta;
+            player_facing += degrees_to_radians(turn_speed) * delta;
         }
 
         // Move
@@ -121,36 +108,36 @@ class TestVgfw : public Vgfw
 
         if (m_keys[L'W'].down)
         {
-            move_x += cos_facing * delta * 5.0f;
-            move_y += sin_facing * delta * 5.0f;
+            move_x += cos_facing * delta * walk_speed;
+            move_y += sin_facing * delta * walk_speed;
         }
 
         if (m_keys[L'S'].down)
         {
-            move_x -= cos_facing * delta * 5.0f;
-            move_y -= sin_facing * delta * 5.0f;
+            move_x -= cos_facing * delta * walk_speed;
+            move_y -= sin_facing * delta * walk_speed;
         }
 
         if (m_keys[L'Q'].down)
         {
-            move_x += sin_facing * delta * 5.0f;
-            move_y -= cos_facing * delta * 5.0f;
+            move_x += sin_facing * delta * walk_speed;
+            move_y -= cos_facing * delta * walk_speed;
         }
 
         if (m_keys[L'E'].down)
         {
-            move_x -= sin_facing * delta * 5.0f;
-            move_y += cos_facing * delta * 5.0f;
+            move_x -= sin_facing * delta * walk_speed;
+            move_y += cos_facing * delta * walk_speed;
         }
 
         // Clip movement
-        if (collision_check(player_x + move_x, player_y + move_y, 0.3f))
+        if (collision_check(player_x + move_x, player_y + move_y, player_radius))
         {
-            if (!collision_check(player_x + move_x, player_y, 0.3f))
+            if (!collision_check(player_x + move_x, player_y, player_radius))
             {
                 move_y = 0.0f;
             }
-            else if (!collision_check(player_x, player_y + move_y, 0.3f))
+            else if (!collision_check(player_x, player_y + move_y, player_radius))
             {
                 move_x = 0.0f;
             }
@@ -165,7 +152,7 @@ class TestVgfw : public Vgfw
         player_y += move_y;
 
         // Draw
-        for (int col = 0; col < 320; ++col)
+        for (int col = 0; col < screen_width; ++col)
         {
             // Get world space ray direction for column
             float rx = cos_facing * screen_rays[col].x - sin_facing * screen_rays[col].y;
@@ -298,16 +285,10 @@ class TestVgfw : public Vgfw
             if (distance == FLT_MAX)
             {
                 // Ray hit nothing
-                for (int y = 0; y < 240; ++y)
+                for (int y = 0; y < screen_height / 2; ++y)
                 {
-                    if (y < 120)
-                    {
-                        set_pixel(col, y, ceiling_color);
-                    }
-                    else
-                    {
-                        set_pixel(col, y, floor_color);
-                    }
+                    set_pixel(col, y, ceiling_color);
+                    set_pixel(col, y + screen_height / 2, floor_color);
                 }
             }
             else
@@ -317,23 +298,22 @@ class TestVgfw : public Vgfw
 
                 // Scale wall column height by distance
                 float height = screen_distance / distance;
-                int ceiling = (int)(120.0f - height * 120.0f);
-                int floor = 240 - ceiling;
+                int ceiling = (int)((1.0f - height) * screen_height * 0.5f);
+                int floor = screen_height - ceiling;
 
-                for (int y = 0; y < 240; ++y)
+                for (int y = 0; y < screen_height && y < ceiling; ++y)
                 {
-                    if (y < ceiling)
-                    {
-                        set_pixel(col, y, ceiling_color);
-                    }
-                    else if (y < floor)
-                    {
-                        set_pixel(col, y, wall_color);
-                    }
-                    else
-                    {
-                        set_pixel(col, y, floor_color);
-                    }
+                    set_pixel(col, y, ceiling_color);
+                }
+
+                for (int y = ceiling; y < screen_height && y < floor; ++y)
+                {
+                    set_pixel(col, y, wall_color);
+                }
+
+                for (int y = floor; y < screen_height; ++y)
+                {
+                    set_pixel(col, y, floor_color);
                 }
             }
         }
