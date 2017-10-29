@@ -9,18 +9,18 @@ class TestVgfw : public Vgfw
         float x, y;
     };
 
-    float half_fov_x;
     float screen_distance;
     float player_facing = 0.0f;
     float player_x = 3.5f;
-    float player_y = 3.5f;
+    float player_y = 2.5f;
     Vec2 screen_rays[screen_width];
 
     const float pi = 3.14159265f;
     const float player_radius = 0.3f;
-    const float fov_y = 100.0f;
+    const float fov = 90.0f;
     const float turn_speed = 90.0f;     // degrees / second
     const float walk_speed = 5.0f;
+    const float wall_height = 1.0f;
 
     static const int world_size_x = 32;
     static const int world_size_y = 32;
@@ -68,16 +68,17 @@ class TestVgfw : public Vgfw
 
     bool on_create() override
     {
-        // Work out field of view for desired vertical FOV
-        screen_distance = tanf(degrees_to_radians(fov_y * 0.5f));
-        half_fov_x = atanf(screen_distance * (float)screen_width / (float)screen_height);
+        // Work out field of view and screen distance
+        float screen_aspect = (float)screen_width / (float)screen_height;
+        float half_fov = degrees_to_radians(fov) * 0.5f;
+        screen_distance = screen_aspect / tanf(half_fov);
 
         // Pre calculate screen space ray directions
         for (int col = 0; col < screen_width; ++col)
         {
             // For each column construct the ray from the player's position through the column.
             float rx = screen_distance;
-            float ry = (col - screen_width * 0.5f) / (screen_width * 0.5f);
+            float ry = screen_aspect * (col - screen_width * 0.5f) / (float)screen_width;
             float rn = 1.0f / sqrtf(rx * rx + ry * ry);
             screen_rays[col].x = rx * rn;
             screen_rays[col].y = ry * rn;
@@ -297,8 +298,8 @@ class TestVgfw : public Vgfw
                 distance = sqrtf(distance) * screen_rays[col].x;
 
                 // Scale wall column height by distance
-                float height = screen_distance / distance;
-                int ceiling = (int)((1.0f - height) * screen_height * 0.5f);
+                float column_height = wall_height * (screen_distance / distance);
+                int ceiling = (int)((1.0f - column_height) * 0.5f * screen_height);
                 int floor = screen_height - ceiling;
 
                 for (int y = 0; y < screen_height && y < ceiling; ++y)
