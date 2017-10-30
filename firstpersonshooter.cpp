@@ -64,13 +64,18 @@ class TestVgfw : public Vgfw
         "################################"
     };
 
-    const uint8_t sky_color = 5;
-    const uint8_t floor_color = 3;
+    const uint8_t sky_color = 13;
+    const uint8_t floor_color = 12;
 
     uint8_t* wall_texture = nullptr;
 
     uint8_t attenuate(uint8_t color, float intensity)
     {
+        if ((color & 31) == 0)
+        {
+            return color;
+        }
+
         intensity = (intensity > 1.0f) ? 1.0f : ((intensity < 0.0f) ? 0.0f : intensity);
         int idx = 7 - (int)(intensity * 7.0f + 0.5f);
         return color + idx * 32;
@@ -84,7 +89,15 @@ class TestVgfw : public Vgfw
 
     uint8_t map_color_to_palette(uint8_t r, uint8_t g, uint8_t b, uint8_t* palette)
     {
-        for (int p = 0; p < 256; ++p)
+        for (int p = 0; p < 32; ++p)
+        {
+            if (palette[p * 3] == r && palette[(p * 3) + 1] == g && palette[(p * 3) + 2] == b)
+            {
+                return p;
+            }
+        }
+
+        for (int p = 32; p < 256; p += 32)
         {
             if (palette[p * 3] == r && palette[(p * 3) + 1] == g && palette[(p * 3) + 2] == b)
             {
@@ -267,7 +280,7 @@ class TestVgfw : public Vgfw
                         if (hit_d < distance)
                         {
                             distance = hit_d;
-                            column = floorf(fmodf(y, 1.0f) * 64.0f);
+                            column = (int)(y * 64.0f + 0.5f) & 63;
                         }
 
                         break;
@@ -296,7 +309,7 @@ class TestVgfw : public Vgfw
                         if (hit_d < distance)
                         {
                             distance = hit_d;
-                            column = floorf(fmodf(y, 1.0f) * 64.0f);
+                            column = (int)(y * 64.0f + 0.5f) & 63;
                         }
 
                         break;
@@ -326,7 +339,7 @@ class TestVgfw : public Vgfw
                         if (hit_d < distance)
                         {
                             distance = hit_d;
-                            column = floorf(fmodf(x, 1.0f) * 64.0f);
+                            column = (int)(x * 64.0f + 0.5f) & 63;
                         }
 
                         break;
@@ -355,7 +368,7 @@ class TestVgfw : public Vgfw
                         if (hit_d < distance)
                         {
                             distance = hit_d;
-                            column = floorf(fmodf(x, 1.0f) * 64.0f);
+                            column = (int)(x * 64.0f + 0.5f) & 63;
                         }
 
                         break;
@@ -368,8 +381,11 @@ class TestVgfw : public Vgfw
                 // Ray hit nothing
                 for (int y = 0; y < screen_height / 2; ++y)
                 {
-                    set_pixel(col, y, sky_color);
-                    set_pixel(col, y + screen_height / 2, floor_color);
+                    distance = (screen_height * wall_height * screen_distance) / (screen_height - 2.0f * y);
+                    float attenuation_factor = 6.0f / distance;
+                    attenuation_factor = attenuation_factor < 0.0f ? 0.0f : (attenuation_factor > 1.0f ? 1.0f : attenuation_factor);
+                    set_pixel(col, y, attenuate(sky_color, attenuation_factor));
+                    set_pixel(col, screen_height - y - 1, attenuate(floor_color, attenuation_factor));
                 }
             }
             else
@@ -377,27 +393,32 @@ class TestVgfw : public Vgfw
                 // Project hit distance to view depth
                 distance = sqrtf(distance) * screen_rays[col].x;
 
+                float attenuation_factor = 6.0f / distance;
+                attenuation_factor = attenuation_factor < 0.0f ? 0.0f : (attenuation_factor > 1.0f ? 1.0f : attenuation_factor);
+
                 // Scale wall column height by distance
                 float column_height = wall_height * (screen_distance / distance);
                 int ceiling = (int)((1.0f - column_height) * 0.5f * screen_height);
                 int floor = screen_height - ceiling;
 
-                for (int y = 0; y < screen_height && y < ceiling; ++y)
+                for (int y = 0; y < screen_height / 2 && y < ceiling; ++y)
                 {
-                    set_pixel(col, y, sky_color);
+                    distance = (screen_height * wall_height * screen_distance) / (screen_height - 2.0f * y);
+                    float attenuation_factor = 6.0f / distance;
+                    attenuation_factor = attenuation_factor < 0.0f ? 0.0f : (attenuation_factor > 1.0f ? 1.0f : attenuation_factor);
+                    set_pixel(col, y, attenuate(sky_color, attenuation_factor));
+                    set_pixel(col, screen_height - y - 1, attenuate(floor_color, attenuation_factor));
                 }
+
+                float v = 0.0f;
+                float dvdy = 64.0f / (floor - ceiling);
 
                 for (int y = ceiling; y < screen_height && y < floor; ++y)
                 {
-                    float v = (float)(y - ceiling) / (float)(floor - ceiling);
-                    int iv = floorf(fmodf(v, 1.0f) * 64.0f);
+                    int iv = (int)(v + 0.5f) & 63;
                     uint8_t texel = wall_texture[iv * 64 + column];
-                    set_pixel(col, y, attenuate(texel, column_height));
-                }
-
-                for (int y = floor; y < screen_height; ++y)
-                {
-                    set_pixel(col, y, floor_color);
+                    set_pixel(col, y, attenuate(texel, attenuation_factor));
+                    v += dvdy;
                 }
             }
         }
