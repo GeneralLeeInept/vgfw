@@ -1,9 +1,26 @@
 #include "vgfw.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#include "stb_image.h"
+
 class TestVgfw : public Vgfw
 {
 public:
-    bool on_create() override { return true; }
+    bool on_create() override 
+    {
+        int x, y, comp;
+        stbi_uc *palette_data = stbi_load("textures\\palette.png", &x, &y, &comp, 3);
+
+        if (!palette_data)
+        {
+            return false;
+        }
+
+        set_palette(palette_data);
+
+        return true; 
+    }
 
     bool on_update(float delta) override
     {

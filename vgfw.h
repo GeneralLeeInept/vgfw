@@ -200,6 +200,18 @@ public:
         }
     }
 
+    void set_palette(uint8_t* palette)
+    {
+        for (int p = 0; p < 256; ++p)
+        {
+            RGBQUAD entry = {};
+            entry.rgbRed = palette[p * 3];
+            entry.rgbGreen = palette[(p * 3) + 1];
+            entry.rgbBlue = palette[(p * 3) + 2];
+            m_palette[p] = entry;
+        }
+    }
+
     void clear_screen(uint8_t c)
     {
         uint8_t* backbuffer = m_framebuffer[m_frontbuffer ^ 1];

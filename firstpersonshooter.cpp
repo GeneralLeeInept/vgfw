@@ -2,6 +2,10 @@
 
 #include <math.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#include "stb_image.h"
+
 class TestVgfw : public Vgfw
 {
     struct Vec2
@@ -60,10 +64,63 @@ class TestVgfw : public Vgfw
         "################################"
     };
 
+    const uint8_t sky_color = 5;
+    const uint8_t floor_color = 3;
+
+    uint8_t* wall_texture = nullptr;
+
+    uint8_t attenuate(uint8_t color, float intensity)
+    {
+        intensity = (intensity > 1.0f) ? 1.0f : ((intensity < 0.0f) ? 0.0f : intensity);
+        int idx = 7 - (int)(intensity * 7.0f + 0.5f);
+        return color + idx * 32;
+    }
+
     float degrees_to_radians(float d)
     {
         static const float radians_per_degree = pi / 180.0f;
         return d * radians_per_degree;
+    }
+
+    uint8_t map_color_to_palette(uint8_t r, uint8_t g, uint8_t b, uint8_t* palette)
+    {
+        for (int p = 0; p < 256; ++p)
+        {
+            if (palette[p * 3] == r && palette[(p * 3) + 1] == g && palette[(p * 3) + 2] == b)
+            {
+                return p;
+            }
+        }
+
+        return 0;
+    }
+
+    uint8_t* load_texture(const char* path, uint8_t* palette)
+    {
+        int x, y, comp;
+        stbi_uc* file_data = stbi_load(path, &x, &y, &comp, 3);
+
+        if (!file_data)
+        {
+            return nullptr;
+        }
+
+        if (x != 64 || y != 64)
+        {
+            return nullptr;
+        }
+
+        uint8_t* texture = new uint8_t[64 * 64];
+
+        for (int p = 0; p < 64 * 64; ++p)
+        {
+            uint8_t r = file_data[p * 3];
+            uint8_t g = file_data[(p * 3) + 1];
+            uint8_t b = file_data[(p * 3) + 2];
+            texture[p] = map_color_to_palette(r, g, b, palette);
+        }
+
+        return texture;
     }
 
     bool on_create() override
@@ -84,7 +141,32 @@ class TestVgfw : public Vgfw
             screen_rays[col].y = ry * rn;
         }
 
+        // Load palette
+        int x, y, comp;
+        stbi_uc* palette_data = stbi_load("textures\\palette.png", &x, &y, &comp, 3);
+
+        if (!palette_data)
+        {
+            return false;
+        }
+
+        set_palette(palette_data);
+
+        wall_texture = load_texture("textures\\bricks.png", palette_data);
+
+        stbi_image_free(palette_data);
+
+        if (!wall_texture)
+        {
+            return false;
+        }
+
         return true;
+    }
+
+    void on_destroy() override
+    {
+        delete [] wall_texture;
     }
 
     bool on_update(float delta) override
@@ -161,9 +243,7 @@ class TestVgfw : public Vgfw
 
             // Cast ray through the map and find the nearest intersection with a solid tile
             float distance = FLT_MAX;
-            int wall_color = 0;
-            int ceiling_color = 3;
-            int floor_color = 2;
+            int column = 0;
 
             if (rx > 0.0f)
             {
@@ -187,7 +267,7 @@ class TestVgfw : public Vgfw
                         if (hit_d < distance)
                         {
                             distance = hit_d;
-                            wall_color = 4;
+                            column = floorf(fmodf(y, 1.0f) * 64.0f);
                         }
 
                         break;
@@ -216,7 +296,7 @@ class TestVgfw : public Vgfw
                         if (hit_d < distance)
                         {
                             distance = hit_d;
-                            wall_color = 4;
+                            column = floorf(fmodf(y, 1.0f) * 64.0f);
                         }
 
                         break;
@@ -246,7 +326,7 @@ class TestVgfw : public Vgfw
                         if (hit_d < distance)
                         {
                             distance = hit_d;
-                            wall_color = 112;
+                            column = floorf(fmodf(x, 1.0f) * 64.0f);
                         }
 
                         break;
@@ -275,7 +355,7 @@ class TestVgfw : public Vgfw
                         if (hit_d < distance)
                         {
                             distance = hit_d;
-                            wall_color = 112;
+                            column = floorf(fmodf(x, 1.0f) * 64.0f);
                         }
 
                         break;
@@ -288,7 +368,7 @@ class TestVgfw : public Vgfw
                 // Ray hit nothing
                 for (int y = 0; y < screen_height / 2; ++y)
                 {
-                    set_pixel(col, y, ceiling_color);
+                    set_pixel(col, y, sky_color);
                     set_pixel(col, y + screen_height / 2, floor_color);
                 }
             }
@@ -304,12 +384,15 @@ class TestVgfw : public Vgfw
 
                 for (int y = 0; y < screen_height && y < ceiling; ++y)
                 {
-                    set_pixel(col, y, ceiling_color);
+                    set_pixel(col, y, sky_color);
                 }
 
                 for (int y = ceiling; y < screen_height && y < floor; ++y)
                 {
-                    set_pixel(col, y, wall_color);
+                    float v = (float)(y - ceiling) / (float)(floor - ceiling);
+                    int iv = floorf(fmodf(v, 1.0f) * 64.0f);
+                    uint8_t texel = wall_texture[iv * 64 + column];
+                    set_pixel(col, y, attenuate(texel, column_height));
                 }
 
                 for (int y = floor; y < screen_height; ++y)
@@ -321,8 +404,6 @@ class TestVgfw : public Vgfw
 
         return true;
     }
-
-    void on_destroy() override {}
 
     bool collision_check(float pos_x, float pos_y, float half_size)
     {
