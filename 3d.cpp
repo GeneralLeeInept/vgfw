@@ -3,6 +3,13 @@
 #include <cmath>
 #include <vector>
 
+const float pi = atanf(1.0f) * 4.0f;
+
+float deg_to_rad(float deg)
+{
+    return deg * pi / 180.0f;
+}
+
 union Vec2i {
     Vec2i()
         : Vec2i(0)
@@ -15,7 +22,8 @@ union Vec2i {
     }
 
     Vec2i(int x_, int y_)
-        : x(x_), y(y_)
+        : x(x_)
+        , y(y_)
     {
     }
 
@@ -129,7 +137,7 @@ union Mat4 {
 
     static Mat4 projection(float fov, float aspect, float znear, float zfar)
     {
-        float f = 1.0f / tanf(fov * 3.1415927410f / 360.0f);
+        float f = 1.0f / tanf(deg_to_rad(fov) * 0.5f);
         Mat4 proj;
         proj[0][0] = f / aspect;
         proj[1][1] = f;
@@ -137,6 +145,65 @@ union Mat4 {
         proj[2][3] = -1.0f;
         proj[3][3] = -(2.0f * zfar * znear) / (zfar - znear);
         return proj;
+    }
+
+    static Mat4 rotate_x(float theta)
+    {
+        float a = deg_to_rad(theta);
+        float cosa = cosf(a);
+        float sina = sinf(a);
+        Mat4 m;
+        m[0][0] = 1.0f;
+        m[1][1] = cosa;
+        m[2][1] = -sina;
+        m[1][2] = sina;
+        m[2][2] = cosa;
+        m[3][3] = 1.0f;
+        return m;
+    }
+
+    static Mat4 rotate_y(float theta)
+    {
+        float a = deg_to_rad(theta);
+        float cosa = cosf(a);
+        float sina = sinf(a);
+        Mat4 m;
+        m[0][0] = cosa;
+        m[2][0] = sina;
+        m[1][1] = 1.0f;
+        m[0][2] = -sina;
+        m[2][2] = cosa;
+        m[3][3] = 1.0f;
+        return m;
+    }
+
+    static Mat4 rotate_z(float theta)
+    {
+        float a = deg_to_rad(theta);
+        float cosa = cosf(a);
+        float sina = sinf(a);
+        Mat4 m;
+        m[0][0] = cosa;
+        m[1][0] = -sina;
+        m[0][1] = sina;
+        m[1][1] = cosa;
+        m[2][2] = 1.0f;
+        m[3][3] = 1.0f;
+        return m;
+    }
+
+    static Mat4 scale(float s)
+    {
+        Mat4 m;
+
+        for (int i = 0; i < 3; ++i)
+        {
+            m[i][i] = s;
+        }
+
+        m[3][3] = 1.0f;
+
+        return m;
     }
 };
 
@@ -165,7 +232,7 @@ Mat4 operator*(const Mat4& a, const Mat4& b)
 
         for (int j = 0; j < 4; ++j)
         {
-            m[i][j] = dot(r, b[j]);
+            m[j][i] = dot(r, b[j]);
         }
     }
 
@@ -251,6 +318,8 @@ public:
 
     bool on_update(float delta) override
     {
+        time += delta;
+        model = Mat4::rotate_y(time * 60.0f * 1.5f) * Mat4::rotate_z(time * 30.0f * 1.5f) * Mat4::rotate_x(-time * 45.0f * 1.5f);
         draw_scene();
         return true;
     }
@@ -292,8 +361,8 @@ public:
 
         for (int i = 0; i < 3; ++i)
         {
-            screen_coords[i].x = (ndc_coords[i].x + 1.0f) * screen_width / 2.0f;
-            screen_coords[i].y = (ndc_coords[i].y + 1.0f) * screen_height / 2.0f;
+            screen_coords[i].x = ((ndc_coords[i].x + 1.0f) * screen_width / 2.0f) + 0.5f;
+            screen_coords[i].y = ((ndc_coords[i].y + 1.0f) * screen_height / 2.0f) + 0.5f;
         }
 
         draw_line(screen_coords[0].x, screen_coords[0].y, screen_coords[1].x, screen_coords[1].y, c);
@@ -305,6 +374,7 @@ public:
     Mat4 model;
     Mat4 view;
     Mat4 proj;
+    float time = 0.0f;
 };
 
 int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
