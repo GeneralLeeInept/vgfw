@@ -218,6 +218,53 @@ public:
         memset(backbuffer, c, screen_width * screen_height);
     }
 
+    void draw_line(int x1, int y1, int x2, int y2, uint8_t c)
+    {
+        int delta_x = x2 - x1;
+        int delta_y = y2 - y1;
+        int step_x = delta_x > 0 ? 1 : (delta_x < 0 ? -1 : 0);
+        int step_y = delta_y > 0 ? 1 : (delta_y < 0 ? -1 : 0);
+
+        if ((delta_x * step_x) > (delta_y * step_y))
+        {
+            // x-major
+            int y = y1;
+            int error = 0;
+
+            for (int x = x1; x != x2; x += step_x)
+            {
+                set_pixel(x, y, c);
+
+                error += step_y * delta_y;
+
+                if ((error * 2) >= step_x * delta_x)
+                {
+                    y += step_y;
+                    error -= step_x * delta_x;
+                }
+            }
+        }
+        else
+        {
+            // y-major
+            int x = x1;
+            int error = 0;
+
+            for (int y = y1; y != y2; y += step_y)
+            {
+                set_pixel(x, y, c);
+
+                error += step_x * delta_x;
+
+                if ((error * 2) >= step_y * delta_y)
+                {
+                    x += step_x;
+                    error -= step_y * delta_y;
+                }
+            }
+        }
+    }
+
 protected:
     struct KeyState
     {
