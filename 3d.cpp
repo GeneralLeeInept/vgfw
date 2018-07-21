@@ -10,35 +10,43 @@ float deg_to_rad(float deg)
     return deg * pi / 180.0f;
 }
 
-union Vec2i {
-    Vec2i()
-        : Vec2i(0)
+union Vec2 {
+    struct
+    {
+        float x;
+        float y;
+    };
+
+    float v[2];
+
+    Vec2()
+        : Vec2(0.0f)
     {
     }
 
-    Vec2i(int i)
-        : Vec2i(i, i)
+    Vec2(const float& a)
+        : Vec2(a, a)
     {
     }
 
-    Vec2i(int x_, int y_)
+    Vec2(float x_, float y_)
         : x(x_)
         , y(y_)
     {
     }
 
-    struct
-    {
-        int x, y;
-    };
-
-    int v[2];
-
-    int& operator[](int ord) { return v[ord]; }
-    const int& operator[](int ord) const { return v[ord]; }
+    float& operator[](int ord) { return v[ord]; }
+    const float& operator[](int ord) const { return v[ord]; }
 };
 
 union Vec3 {
+    struct
+    {
+        float x, y, z;
+    };
+
+    float v[3];
+
     Vec3()
         : Vec3(0.0f)
     {
@@ -56,18 +64,20 @@ union Vec3 {
     {
     }
 
-    struct
-    {
-        float x, y, z;
-    };
-
-    float v[3];
-
     float& operator[](int ord) { return v[ord]; }
     const float& operator[](int ord) const { return v[ord]; }
+
+    Vec2 xy() const { return Vec2(x, y); }
 };
 
 union Vec4 {
+    struct
+    {
+        float x, y, z, w;
+    };
+
+    float v[4];
+
     Vec4()
         : Vec4(0.0f)
     {
@@ -91,15 +101,10 @@ union Vec4 {
     {
     }
 
-    struct
-    {
-        float x, y, z, w;
-    };
-
-    float v[4];
-
     float& operator[](int ord) { return v[ord]; }
     const float& operator[](int ord) const { return v[ord]; }
+
+    Vec3 xyz() const { return Vec3(x, y, z); }
 };
 
 union Mat4 {
@@ -263,16 +268,43 @@ Vec4 operator/(const Vec4& v, float s)
     return r;
 }
 
+Vec2 operator-(const Vec2& a, const Vec2& b)
+{
+    return Vec2(a.x - b.x, a.y - b.y);
+}
+
 Vec3 transform(const Mat4& m, const Vec3& v)
 {
     Vec4 r = m * Vec4(v, 1.0f);
-    return Vec3(r.x, r.y, r.z);
+    return r.xyz();
 }
 
 Vec3 rotate(const Mat4& m, const Vec3& v)
 {
     Vec4 r = m * Vec4(v, 0.0f);
-    return Vec3(r.x, r.y, r.z);
+    return r.xyz();
+}
+
+// Given a directed line segment from a->b and a point c check
+// which side of a->b c lies on:
+//  -1 = right side
+//   0 = colinear
+//   1 = left side
+int orient2d(const Vec2& a, const Vec2& b, const Vec2& c)
+{
+    Vec2 ab = b - a;
+    Vec2 ac = c - a;
+    float det = ab.x * ac.y - ac.x * ab.y;
+    return (det > 0.0f) ? 1 : ((det < 0.0f) ? -1 : 0);
+}
+
+// Classify triangle by signed area after projection to XY plane; useful for culling:
+//  -1 = clockwise winding / backface
+//   0 = degenerate
+//   1 = counter-clockwise winding / frontface
+int classify(const Triangle& t)
+{
+    return orient2d(t.p[0].xy(), t.p[1].xy(), t.p[2].xy());
 }
 
 class TestVgfw : public Vgfw
@@ -298,7 +330,7 @@ public:
         Mesh cube;
         cube.tris =
         {
-            { A, B, D },
+            { B, A, D },
             { B, D, C },
             { E, F, G },
             { E, G, H },
@@ -318,8 +350,56 @@ public:
 
     bool on_update(float delta) override
     {
-        time += delta;
-        model = Mat4::rotate_y(time * 60.0f * 1.5f) * Mat4::rotate_z(time * 30.0f * 1.5f) * Mat4::rotate_x(-time * 45.0f * 1.5f);
+        if (m_keys[L' '].pressed)
+        {
+            anim = !anim;
+        }
+        else if (m_keys[L'Z'].pressed)
+        {
+            anim = false;
+
+            if (m_keys[VK_LSHIFT].down)
+            {
+                model = Mat4::identity();
+            }
+            else
+            {
+                model = Mat4::rotate_y(180.0f);
+            }
+        }
+        else if (m_keys[L'X'].pressed)
+        {
+            anim = false;
+
+            if (m_keys[VK_LSHIFT].down)
+            {
+                model = Mat4::rotate_y(270.0f);
+            }
+            else
+            {
+                model = Mat4::rotate_y(90.0f);
+            }
+        }
+        else if (m_keys[L'Y'].pressed)
+        {
+            anim = false;
+
+            if (m_keys[VK_LSHIFT].down)
+            {
+                model = Mat4::rotate_z(270.0f);
+            }
+            else
+            {
+                model = Mat4::rotate_z(90.0f);
+            }
+        }
+
+        if (anim)
+        {
+            time += delta;
+            model = Mat4::rotate_y(time * 60.0f * 1.5f) * Mat4::rotate_z(time * 30.0f * 1.5f) * Mat4::rotate_x(-time * 45.0f * 1.5f);
+        }
+
         draw_scene();
         return true;
     }
@@ -331,12 +411,13 @@ public:
         clear_screen(0);
 
         Mat4 mvp = proj * view * model;
+        uint8_t c = 1;
 
         for (const Mesh& m : meshes)
         {
             for (const Triangle& t : m.tris)
             {
-                draw_triangle(mvp, t, 15);
+                draw_triangle(mvp, t, c++);
             }
         }
     }
@@ -357,17 +438,20 @@ public:
             ndc_coords[i] = clip_coords[i] / clip_coords[i].w;
         }
 
-        Vec2i screen_coords[3];
+        Vec2 screen_coords[3];
 
         for (int i = 0; i < 3; ++i)
         {
-            screen_coords[i].x = ((ndc_coords[i].x + 1.0f) * screen_width / 2.0f) + 0.5f;
-            screen_coords[i].y = ((ndc_coords[i].y + 1.0f) * screen_height / 2.0f) + 0.5f;
+            screen_coords[i].x = ((ndc_coords[i].x + 1.0f) * screen_width / 2.0f);
+            screen_coords[i].y = ((ndc_coords[i].y + 1.0f) * screen_height / 2.0f);
         }
 
-        draw_line(screen_coords[0].x, screen_coords[0].y, screen_coords[1].x, screen_coords[1].y, c);
-        draw_line(screen_coords[1].x, screen_coords[1].y, screen_coords[2].x, screen_coords[2].y, c);
-        draw_line(screen_coords[2].x, screen_coords[2].y, screen_coords[0].x, screen_coords[0].y, c);
+        if (orient2d(screen_coords[0], screen_coords[1], screen_coords[2]) < 0)
+        {
+            draw_line(screen_coords[0].x, screen_coords[0].y, screen_coords[1].x, screen_coords[1].y, c);
+            draw_line(screen_coords[1].x, screen_coords[1].y, screen_coords[2].x, screen_coords[2].y, c);
+            draw_line(screen_coords[2].x, screen_coords[2].y, screen_coords[0].x, screen_coords[0].y, c);
+        }
     }
 
     std::vector<Mesh> meshes;
@@ -375,6 +459,7 @@ public:
     Mat4 view;
     Mat4 proj;
     float time = 0.0f;
+    bool anim = true;
 };
 
 int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
