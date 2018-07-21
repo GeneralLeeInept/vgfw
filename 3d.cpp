@@ -466,7 +466,7 @@ int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdL
 {
     TestVgfw test_app;
 
-    if (!test_app.initialize(L"Vgfw 3D Renderer"))
+    if (!test_app.initialize(L"Vgfw 3D Renderer", 1280, 720, 1))
     {
         exit(EXIT_FAILURE);
     }

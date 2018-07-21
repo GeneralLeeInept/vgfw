@@ -17,7 +17,7 @@ class TestVgfw : public Vgfw
     float player_facing = 0.0f;
     float player_x = 3.5f;
     float player_y = 2.5f;
-    Vec2 screen_rays[screen_width];
+    Vec2* screen_rays;
 
     const float pi = 3.14159265f;
     const float player_radius = 0.3f;
@@ -144,6 +144,8 @@ class TestVgfw : public Vgfw
         screen_distance = screen_aspect / tanf(half_fov);
 
         // Pre calculate screen space ray directions
+        screen_rays = new Vec2[screen_width];
+
         for (int col = 0; col < screen_width; ++col)
         {
             // For each column construct the ray from the player's position through the column.
@@ -180,6 +182,7 @@ class TestVgfw : public Vgfw
     void on_destroy() override
     {
         delete [] wall_texture;
+        delete [] screen_rays;
     }
 
     bool on_update(float delta) override
@@ -457,7 +460,7 @@ int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdL
 {
     TestVgfw test_app;
 
-    if (!test_app.initialize(L"First Person Shooter"))
+    if (!test_app.initialize(L"First Person Shooter", 1024, 768, 1))
     {
         exit(EXIT_FAILURE);
     }

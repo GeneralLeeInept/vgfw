@@ -7,10 +7,10 @@
 class Vgfw
 {
 public:
-    static const int screen_width = 320;
-    static const int screen_height = 240;
-    static const int window_width = screen_width * 2;
-    static const int window_height = screen_height * 2;
+    int screen_width;
+    int screen_height;
+    int window_width;
+    int window_height;
 
     virtual ~Vgfw() = default;
 
@@ -18,9 +18,14 @@ public:
     virtual void on_destroy() = 0;
     virtual bool on_update(float delta) = 0;
 
-    bool initialize(const wchar_t* name)
+    bool initialize(const wchar_t* name, int screen_width_ = 320, int screen_height_ = 240, int window_scale = 2)
     {
         m_title = _wcsdup(name);
+
+        screen_width = screen_width_;
+        screen_height = screen_height_;
+        window_width = screen_width * window_scale;
+        window_height = screen_height * window_scale;
 
         // Create window
         WNDCLASSEXW wc = {};
