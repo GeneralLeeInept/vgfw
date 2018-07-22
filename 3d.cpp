@@ -307,6 +307,29 @@ int classify(const Triangle& t)
     return orient2d(t.p[0].xy(), t.p[1].xy(), t.p[2].xy());
 }
 
+struct Edge
+{
+    Vec2 v[2];
+    float a, b, c;
+
+    Edge() = default;
+
+    Edge(const Vec2& v0, const Vec2& v1)
+    {
+        v[0] = v0;
+        v[1] = v1;
+
+        a = v0.y - v1.y;
+        b = v1.x - v0.x;
+        c = v0.x * v1.y - v1.x * v0.y;
+    }
+
+    float operator()(const Vec2& p)
+    {
+        return a * p.x + b * p.y + c;
+    }
+};
+
 class TestVgfw : public Vgfw
 {
 public:
@@ -400,6 +423,11 @@ public:
             model = Mat4::rotate_y(time * 60.0f * 1.5f) * Mat4::rotate_z(time * 30.0f * 1.5f) * Mat4::rotate_x(-time * 45.0f * 1.5f);
         }
 
+        if (m_keys[VK_F1].pressed)
+        {
+            wireframe = !wireframe;
+        }
+
         draw_scene();
         return true;
     }
@@ -448,9 +476,54 @@ public:
 
         if (orient2d(screen_coords[0], screen_coords[1], screen_coords[2]) < 0)
         {
-            draw_line(screen_coords[0].x, screen_coords[0].y, screen_coords[1].x, screen_coords[1].y, c);
-            draw_line(screen_coords[1].x, screen_coords[1].y, screen_coords[2].x, screen_coords[2].y, c);
-            draw_line(screen_coords[2].x, screen_coords[2].y, screen_coords[0].x, screen_coords[0].y, c);
+            if (wireframe)
+            {
+                draw_line(screen_coords[0].x, screen_coords[0].y, screen_coords[1].x, screen_coords[1].y, c);
+                draw_line(screen_coords[1].x, screen_coords[1].y, screen_coords[2].x, screen_coords[2].y, c);
+                draw_line(screen_coords[2].x, screen_coords[2].y, screen_coords[0].x, screen_coords[0].y, c);
+            }
+            else
+            {
+                fill_triangle(screen_coords, c);
+            }
+        }
+    }
+
+    void fill_triangle(Vec2* screen_coords, uint8_t c)
+    {
+        Edge e01(screen_coords[0], screen_coords[1]);
+        Edge e12(screen_coords[1], screen_coords[2]);
+        Edge e20(screen_coords[2], screen_coords[0]);
+
+        int bounds_min_x = INT_MAX;
+        int bounds_min_y = INT_MAX;
+        int bounds_max_x = INT_MIN;
+        int bounds_max_y = INT_MIN;
+
+        for (int i = 0; i < 3; ++i)
+        {
+            bounds_min_x = floorf(screen_coords[i].x) < bounds_min_x ? floorf(screen_coords[i].x) : bounds_min_x;
+            bounds_min_y = floorf(screen_coords[i].y) < bounds_min_y ? floorf(screen_coords[i].y) : bounds_min_y;
+            bounds_max_x = ceilf(screen_coords[i].x) > bounds_max_x ? ceilf(screen_coords[i].x) : bounds_max_x;
+            bounds_max_y = ceilf(screen_coords[i].y) > bounds_max_y ? ceilf(screen_coords[i].y) : bounds_max_y;
+        }
+
+        bounds_min_x = bounds_min_x > 0 ? bounds_min_x : 0;
+        bounds_min_y = bounds_min_y > 0 ? bounds_min_y : 0;
+        bounds_max_x = bounds_max_x < screen_width ? bounds_max_x : screen_width;
+        bounds_max_y = bounds_max_y < screen_height ? bounds_max_y : screen_height;
+
+        for (int y = bounds_min_y; y < bounds_max_y; ++y)
+        {
+            for (int x = bounds_min_x; x < bounds_max_x; ++x)
+            {
+                Vec2 p(x, y);
+
+                if (e01(p) <= 0.0f && e12(p) <= 0.0f && e20(p) <= 0.0f)
+                {
+                    set_pixel(x, y, c);
+                }
+            }
         }
     }
 
@@ -460,6 +533,7 @@ public:
     Mat4 proj;
     float time = 0.0f;
     bool anim = true;
+    bool wireframe = false;
 };
 
 int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
