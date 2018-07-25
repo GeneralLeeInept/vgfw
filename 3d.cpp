@@ -3,6 +3,10 @@
 #include <cmath>
 #include <vector>
 
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#include "stb_image.h"
+
 //===================================================================================================================================================
 //
 // Angles and trigonometry
@@ -49,6 +53,16 @@ union Vec2 {
     const float& operator[](int ord) const { return v[ord]; }
 };
 
+Vec2 operator*(const Vec2& a, float s)
+{
+    return Vec2(a.x * s, a.y * s);
+}
+
+Vec2 operator+(const Vec2& a, const Vec2& b)
+{
+    return Vec2(a.x + b.x, a.y + b.y);
+}
+
 Vec2 operator-(const Vec2& a, const Vec2& b)
 {
     return Vec2(a.x - b.x, a.y - b.y);
@@ -90,6 +104,12 @@ union Vec3 {
     Vec2 xy() const { return Vec2(x, y); }
 };
 
+// Hadamard product
+Vec3 operator*(const Vec3& a, const Vec3& b)
+{
+    return Vec3(a.x * b.x, a.y * b.y, a.z * b.z);
+}
+
 Vec3 operator*(const Vec3& a, float s)
 {
     return Vec3(a.x * s, a.y * s, a.z * s);
@@ -104,6 +124,16 @@ Vec3 operator/(const Vec3& a, float s)
 Vec3 operator+(const Vec3& a, const Vec3& b)
 {
     return Vec3(a.x + b.x, a.y + b.y, a.z + b.z);
+}
+
+Vec3 lerp(const Vec3& a, const Vec3& b, float t)
+{
+    return Vec3(a.x * (1.0f - t) + b.x * t, a.y * (1.0f - t) + b.y * t, a.z * (1.0f - t) + b.z * t);
+}
+
+float dot(const Vec3& a, const Vec3& b)
+{
+    return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
 //===================================================================================================================================================
@@ -547,7 +577,8 @@ Mat4 inverse(const Mat4& m)
 struct Vertex
 {
     Vec3 p;
-    Vec3 c;
+    Vec3 n;
+    Vec2 uv;
 };
 
 struct Triangle
@@ -631,6 +662,94 @@ public:
 
     uint8_t make_color(const Vec3& color) { return make_color(color.x, color.y, color.z); }
 
+    struct Texture
+    {
+        ~Texture()
+        {
+            if (texels)
+            {
+                stbi_image_free(texels);
+            }
+        }
+
+        int width;
+        int height;
+        uint8_t* texels = nullptr;
+    };
+
+    Texture bricks;
+    Texture rick;
+    Texture checkerboard;
+
+    int texture_width, texture_height;
+    uint8_t* texels = nullptr;
+
+    void load_texture(const char* path, Texture* tex)
+    {
+        int comp;
+        tex->texels = stbi_load(path, &tex->width, &tex->height, &comp, 3);
+    }
+
+    void bind_texture(Texture* tex)
+    {
+        if (tex)
+        {
+            texture_width = tex->width;
+            texture_height = tex->height;
+            texels = tex->texels;
+        }
+        else
+        {
+            texture_width = 0;
+            texture_height = 0;
+            texels = nullptr;
+        }
+    }
+    Vec3 tex_lookup(int x, int y)
+    {
+        float r = texels[((x + y * texture_width) * 3) + 0] / 255.0f;
+        float g = texels[((x + y * texture_width) * 3) + 1] / 255.0f;
+        float b = texels[((x + y * texture_width) * 3) + 2] / 255.0f;
+        return Vec3(r, g, b);
+    }
+
+    Vec3 sample_texture(const Vec2& uv)
+    {
+        float w;
+        Vec2 s;
+        s.x = modff(uv.x, &w);
+        s.y = modff(uv.y, &w);
+        int x = static_cast<int>(s.x * (texture_width - 1) + 0.5f) & (texture_width - 1);
+        int y = static_cast<int>(s.y * (texture_height - 1) + 0.5f) & (texture_height - 1);
+        return tex_lookup(x, y);
+    }
+
+    Vec3 sample_texture_box(const Vec2& uv)
+    {
+        float w;
+        Vec2 s;
+        s.x = modff(uv.x, &w);
+        s.y = modff(uv.y, &w);
+
+        float tx = s.x * (texture_width - 1);
+        float ty = s.y * (texture_height - 1);
+
+        int min_x = static_cast<int>(floorf(tx)) & (texture_width - 1);
+        int min_y = static_cast<int>(floorf(ty)) & (texture_width - 1);
+        int max_x = static_cast<int>(ceilf(tx)) & (texture_width - 1);
+        int max_y = static_cast<int>(ceilf(ty)) & (texture_width - 1);
+
+        Vec3 samples[4];
+        samples[0] = tex_lookup(min_x, min_y);
+        samples[1] = tex_lookup(max_x, min_y);
+        samples[2] = tex_lookup(min_x, max_y);
+        samples[3] = tex_lookup(max_x, max_y);
+
+        float wx = tx - floorf(tx);
+        float wy = ty - floorf(ty);
+        return lerp(lerp(samples[0], samples[1], wx), lerp(samples[2], samples[3], wx), wy);
+    }
+
     bool on_create() override
     {
         // 8-bit truecolor palette
@@ -666,50 +785,69 @@ public:
         camera = Mat4::identity();
         camera.P.z = 5.0f;
 
+        // Load textures
+        load_texture("textures/checker_board.png", &checkerboard);
+        load_texture("textures/bricks.png", &bricks);
+        load_texture("textures/rick.png", &rick);
+
         // Create 3D scene
         // clang-format off
-#if 1
-        Vertex A = { {-1.0f,  1.0f,  1.0f }, { 1.0f, 0.0f, 0.0f } };
-        Vertex B = { { 1.0f,  1.0f,  1.0f }, { 0.0f, 1.0f, 0.0f } };
-        Vertex C = { { 1.0f, -1.0f,  1.0f }, { 1.0f, 1.0f, 1.0f } };
-        Vertex D = { {-1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } };
-        Vertex E = { {-1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } };
-        Vertex F = { { 1.0f,  1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } };
-        Vertex G = { { 1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } };
-        Vertex H = { {-1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 0.0f } };
+        Vertex A = { { -1.0f,  1.0f,  1.0f }, {  0.0f,  0.0f,  1.0f }, { 0.0f, 0.0f } };
+        Vertex B = { {  1.0f,  1.0f,  1.0f }, {  0.0f,  0.0f,  1.0f }, { 1.0f, 0.0f } };
+        Vertex C = { {  1.0f, -1.0f,  1.0f }, {  0.0f,  0.0f,  1.0f }, { 1.0f, 1.0f } };
+        Vertex D = { { -1.0f, -1.0f,  1.0f }, {  0.0f,  0.0f,  1.0f }, { 0.0f, 1.0f } };
+
+        Vertex E = { {  1.0f,  1.0f,  1.0f }, {  1.0f,  0.0f,  0.0f }, { 0.0f, 0.0f } };
+        Vertex F = { {  1.0f,  1.0f, -1.0f }, {  1.0f,  0.0f,  0.0f }, { 1.0f, 0.0f } };
+        Vertex G = { {  1.0f, -1.0f, -1.0f }, {  1.0f,  0.0f,  0.0f }, { 1.0f, 1.0f } };
+        Vertex H = { {  1.0f, -1.0f,  1.0f }, {  1.0f,  0.0f,  0.0f }, { 0.0f, 1.0f } };
+
+        Vertex I = { {  1.0f,  1.0f, -1.0f }, {  0.0f,  0.0f, -1.0f }, { 0.0f, 0.0f } };
+        Vertex J = { { -1.0f,  1.0f, -1.0f }, {  0.0f,  0.0f, -1.0f }, { 1.0f, 0.0f } };
+        Vertex K = { { -1.0f, -1.0f, -1.0f }, {  0.0f,  0.0f, -1.0f }, { 1.0f, 1.0f } };
+        Vertex L = { {  1.0f, -1.0f, -1.0f }, {  0.0f,  0.0f, -1.0f }, { 0.0f, 1.0f } };
+
+        Vertex M = { { -1.0f,  1.0f, -1.0f }, { -1.0f,  0.0f,  0.0f }, { 0.0f, 0.0f } };
+        Vertex N = { { -1.0f,  1.0f,  1.0f }, { -1.0f,  0.0f,  0.0f }, { 1.0f, 0.0f } };
+        Vertex O = { { -1.0f, -1.0f,  1.0f }, { -1.0f,  0.0f,  0.0f }, { 1.0f, 1.0f } };
+        Vertex P = { { -1.0f, -1.0f, -1.0f }, { -1.0f,  0.0f,  0.0f }, { 0.0f, 1.0f } };
+
+        Vertex Q = { { -1.0f,  1.0f, -1.0f }, {  0.0f,  1.0f,  0.0f }, { 0.0f, 0.0f } };
+        Vertex R = { {  1.0f,  1.0f, -1.0f }, {  0.0f,  1.0f,  0.0f }, { 1.0f, 0.0f } };
+        Vertex S = { {  1.0f,  1.0f,  1.0f }, {  0.0f,  1.0f,  0.0f }, { 1.0f, 1.0f } };
+        Vertex T = { { -1.0f,  1.0f,  1.0f }, {  0.0f,  1.0f,  0.0f }, { 0.0f, 1.0f } };
+
+        Vertex U = { { -1.0f, -1.0f,  1.0f }, {  0.0f, -1.0f,  0.0f }, { 0.0f, 0.0f } };
+        Vertex V = { {  1.0f, -1.0f,  1.0f }, {  0.0f, -1.0f,  0.0f }, { 1.0f, 0.0f } };
+        Vertex W = { {  1.0f, -1.0f, -1.0f }, {  0.0f, -1.0f,  0.0f }, { 1.0f, 1.0f } };
+        Vertex X = { { -1.0f, -1.0f, -1.0f }, {  0.0f, -1.0f,  0.0f }, { 0.0f, 1.0f } };
 
         Mesh cube;
-        cube.tris =
-        {
-            { B, A, D },
-            { B, D, C },
-            { E, F, G },
-            { E, G, H },
-            { F, E, B },
-            { E, A, B },
-            { A, E, D },
-            { E, H, D },
-            { F, B, G },
-            { B, C, G },
-            { H, G, D },
-            { G, C, D }
-        };
+        cube.tris = 
+        {{
+            { A, D, B }, { B, D, C },
+            { E, H, F }, { F, H, G },
+            { I, L, J }, { J, L, K },
+            { M, P, N }, { N, P, O },
+            { Q, T, R }, { R, T, S },
+            { U, X, V }, { V, X, W }
+        }};
 
         meshes.push_back(cube);
-#else
-        Vertex A = { {  0.f,  sqrtf(0.5f), 0.f }, { 1.0f, 0.0f, 0.0f } };
-        Vertex B = { { -1.f, -sqrtf(0.5f), 0.f }, { 0.0f, 1.0f, 0.0f } };
-        Vertex C = { {  1.f, -sqrtf(0.5f), 0.f }, { 0.0f, 0.0f, 1.0f } };
-
-        Mesh triangle = { { { A, B, C } } };
-        meshes.push_back(triangle);
-#endif
         // clang-format on
 
         return true;
     }
 
-    void on_destroy() override { delete[] depth_buffer; }
+    void on_destroy() override
+    {
+        delete[] depth_buffer;
+
+        if (texels)
+        {
+            stbi_image_free(texels);
+        }
+    }
 
     bool on_update(float delta) override
     {
@@ -718,48 +856,19 @@ public:
             wireframe = !wireframe;
         }
 
+        if (m_keys[VK_F2].pressed)
+        {
+            filter_textures = !filter_textures;
+        }
+
         if (m_keys[L' '].pressed)
         {
             anim = !anim;
         }
-        else if (m_keys[L'Z'].pressed)
-        {
-            anim = false;
 
-            if (m_keys[VK_LSHIFT].down)
-            {
-                model = Mat4::identity();
-            }
-            else
-            {
-                model = Mat4::rotate_y(180.0f);
-            }
-        }
-        else if (m_keys[L'X'].pressed)
+        if (m_keys[L'R'].pressed)
         {
-            anim = false;
-
-            if (m_keys[VK_LSHIFT].down)
-            {
-                model = Mat4::rotate_y(270.0f);
-            }
-            else
-            {
-                model = Mat4::rotate_y(90.0f);
-            }
-        }
-        else if (m_keys[L'Y'].pressed)
-        {
-            anim = false;
-
-            if (m_keys[VK_LSHIFT].down)
-            {
-                model = Mat4::rotate_z(270.0f);
-            }
-            else
-            {
-                model = Mat4::rotate_z(90.0f);
-            }
+            rick_roll = !rick_roll;
         }
 
         if (anim)
@@ -770,14 +879,11 @@ public:
             {
                 time -= 360.0f;
             }
+        }
 
-            model = Mat4::rotate_y(time * 60.0f * 1.5f) * Mat4::rotate_z(time * 30.0f * 1.5f) * Mat4::rotate_x(-time * 45.0f * 1.5f);
-            //model = Mat4::rotate_y(sinf(time) * 60.0f * 1.5f);
-        }
-        else
-        {
-            model = Mat4::identity();
-        }
+        model = Mat4::rotate_y(time * 60.0f * 1.5f) * Mat4::rotate_z(time * 30.0f * 1.5f) * Mat4::rotate_x(-time * 45.0f * 1.5f);
+        model.P.x = 1.5f * sinf(time);
+        model.P.z = 1.5f * cosf(time);
 
         view = inverse(camera);
 
@@ -796,6 +902,8 @@ public:
 
         Mat4 mvp = proj * view * model;
 
+        bind_texture(rick_roll ? &rick : &bricks);
+
         for (const Mesh& m : meshes)
         {
             for (const Triangle& t : m.tris)
@@ -804,9 +912,11 @@ public:
             }
         }
 
-        model = inverse(model) * Mat4::scale(0.9f);
+        model = inverse(model);
         mvp = proj * view * model;
 
+        bind_texture(rick_roll ? &rick : &checkerboard);
+
         for (const Mesh& m : meshes)
         {
             for (const Triangle& t : m.tris)
@@ -814,6 +924,8 @@ public:
                 draw_triangle(mvp, t);
             }
         }
+
+        bind_texture(nullptr);
     }
 
     void draw_triangle(const Mat4& mvp, const Triangle& tri)
@@ -844,9 +956,9 @@ public:
         {
             if (wireframe)
             {
-                draw_line(window_coords[0].x, window_coords[0].y, window_coords[1].x, window_coords[1].y, make_color(tri.v[0].c));
-                draw_line(window_coords[1].x, window_coords[1].y, window_coords[2].x, window_coords[2].y, make_color(tri.v[1].c));
-                draw_line(window_coords[2].x, window_coords[2].y, window_coords[0].x, window_coords[0].y, make_color(tri.v[2].c));
+                draw_line(window_coords[0].x, window_coords[0].y, window_coords[1].x, window_coords[1].y, make_color(1.0f, 1.0f, 1.0f));
+                draw_line(window_coords[1].x, window_coords[1].y, window_coords[2].x, window_coords[2].y, make_color(1.0f, 1.0f, 1.0f));
+                draw_line(window_coords[2].x, window_coords[2].y, window_coords[0].x, window_coords[0].y, make_color(1.0f, 1.0f, 1.0f));
             }
             else
             {
@@ -882,8 +994,10 @@ public:
         float area_scale = static_cast<float>(classify(screen_coords));
 
         float ooz[3] = { 1.0f / screen_coords[0].w, 1.0f / screen_coords[1].w, 1.0f / screen_coords[2].w };
-        Vec3 coz[3] = { tri.v[0].c * ooz[0], tri.v[1].c * ooz[1], tri.v[2].c * ooz[2] };
         float doz[3] = { screen_coords[0].z * ooz[0], screen_coords[1].z * ooz[1], screen_coords[2].z * ooz[2] };
+        Vec3 noz[3] = { tri.v[0].n * ooz[0], tri.v[1].n * ooz[1], tri.v[2].n * ooz[2] };
+        Vec2 uvoz[3] = { tri.v[0].uv * ooz[0], tri.v[1].uv * ooz[1], tri.v[2].uv * ooz[2] };
+
         float denom = 1.0f / triangle_area_2(screen_coords);
 
         for (int y = bounds_min_y; y < bounds_max_y; ++y)
@@ -908,8 +1022,12 @@ public:
                     if (d <= depth_buffer[x + (y * screen_width)])
                     {
                         depth_buffer[x + (y * screen_width)] = d;
-                        Vec3 color = (coz[0] * w0 + coz[1] * w1 + coz[2] * w2) * z;
-                        set_pixel(x, y, make_color(color));
+                        Vec3 normal = rotate(model, (noz[0] * w0 + noz[1] * w1 + noz[2] * w2) * z);
+                        float ndotl = dot(normal, Vec3(0.732f, 0.732f, 0.732f));
+                        ndotl = ndotl < 0.0f ? 0.0f : (ndotl > 1.0f ? 1.0f : ndotl);
+                        Vec3 color = Vec3(0.5f, 0.5f, 0.5f) * ndotl + Vec3(0.5f, 0.5f, 0.5f);
+                        Vec2 uv = (uvoz[0] * w0 + uvoz[1] * w1 + uvoz[2] * w2) * z;
+                        set_pixel(x, y, make_color((filter_textures ? sample_texture_box(uv) : sample_texture(uv)) * color));
                     }
                 }
             }
@@ -923,8 +1041,10 @@ public:
     Mat4 proj;
     Mat4 viewport_transform;
     float time = 0.0f;
-    bool anim = false;
+    bool anim = true;
     bool wireframe = false;
+    bool filter_textures = true;
+    bool rick_roll = false;
     float* depth_buffer;
 };
 
@@ -932,7 +1052,7 @@ int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdL
 {
     TestVgfw test_app;
 
-    if (!test_app.initialize(L"Vgfw 3D Renderer", 320, 240, 4))
+    if (!test_app.initialize(L"Vgfw 3D Renderer", 320, 240, 3))
     {
         exit(EXIT_FAILURE);
     }
