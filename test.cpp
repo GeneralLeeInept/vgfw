@@ -93,12 +93,12 @@ public:
 
         if (!greyscale)
         {
-            for (int x = 0; x < 320; ++x)
+            for (int x = 0; x < screen_width; ++x)
             {
-                for (int y = 0; y < 240; ++y)
+                for (int y = 0; y < screen_height; ++y)
                 {
-                    float fx = x / 320.0f;
-                    float fy = y / 240.0f;
+                    float fx = x / static_cast<float>(screen_width);
+                    float fy = y / static_cast<float>(screen_height);
 
                     float dr = sqrtf((red_spot[0] - fx) * (red_spot[0] - fx) + (red_spot[1] - fy) * (red_spot[1] - fy));
                     dr = dr < 1.0f ? dr : 1.0f;
@@ -118,12 +118,12 @@ public:
         }
         else
         {
-            for (int x = 0; x < 320; ++x)
+            for (int x = 0; x < screen_width; ++x)
             {
-                for (int y = 0; y < 240; ++y)
+                for (int y = 0; y < screen_height; ++y)
                 {
-                    float fx = x / 320.0f;
-                    float fy = y / 240.0f;
+                    float fx = x / static_cast<float>(screen_width);
+                    float fy = y / static_cast<float>(screen_height);
 
                     float dr = sqrtf((0.5f - fx) * (0.5f - fx) + (0.5f - fy) * (0.5f - fy));
                     dr = dr < 1.0f ? dr : 1.0f;
@@ -151,7 +151,7 @@ int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdL
 {
     TestVgfw test_app;
 
-    if (!test_app.initialize(L"Vgfw Test App"))
+    if (!test_app.initialize(L"Vgfw Test App", 256, 256, 4))
     {
         exit(EXIT_FAILURE);
     }
