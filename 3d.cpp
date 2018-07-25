@@ -574,7 +574,7 @@ int orient2d(const Vec2& a, const Vec2& b, const Vec2& c)
 }
 
 // Given an array of 3 screen space coordinates determine
-// winding of the triangle
+// winding of the triangle:
 // -1 = clockwise
 //  0 = degenerate
 //  1 = counter-clockwise
@@ -583,7 +583,9 @@ int classify(const Vec4* abc)
     return orient2d(abc[0].xy(), abc[1].xy(), abc[2].xy());
 }
 
-float triangle_area(const Vec4* abc)
+// Given an array of 3 screen space coordinates return twice the area
+// of the triangle they form.
+float triangle_area_2(const Vec4* abc)
 {
     Vec2 ab = abc[1].xy() - abc[0].xy();
     Vec2 ac = abc[2].xy() - abc[0].xy();
@@ -619,7 +621,7 @@ struct Edge
 class TestVgfw : public Vgfw
 {
 public:
-   uint8_t make_color(float r, float g, float b)
+    uint8_t make_color(float r, float g, float b)
     {
         int red_bits = (r == 1.0f) ? 7 : static_cast<int>(r * 8);
         int green_bits = (g == 1.0f) ? 7 : static_cast<int>(g * 8);
@@ -627,10 +629,7 @@ public:
         return (red_bits << 5) | (green_bits << 2) | blue_bits;
     }
 
-    uint8_t make_color(const Vec3& color)
-    {
-        return make_color(color.x, color.y, color.z);
-    }
+    uint8_t make_color(const Vec3& color) { return make_color(color.x, color.y, color.z); }
 
     bool on_create() override
     {
@@ -650,6 +649,9 @@ public:
 
         set_palette(r3g3b2);
 
+        // Create depth buffer
+        depth_buffer = new float[screen_width * screen_height];
+
         // Initialize matrices
         proj = Mat4::projection(90.0f, screen_width / (float)screen_height, 0.1f, 10.0f);
 
@@ -668,13 +670,13 @@ public:
         // clang-format off
 #if 1
         Vertex A = { {-1.0f,  1.0f,  1.0f }, { 1.0f, 0.0f, 0.0f } };
-        Vertex B = { { 1.0f,  1.0f,  1.0f }, { 1.0f, 0.0f, 0.0f } };
-        Vertex C = { { 1.0f, -1.0f,  1.0f }, { 0.0f, 1.0f, 0.0f } };
-        Vertex D = { {-1.0f, -1.0f,  1.0f }, { 0.0f, 1.0f, 0.0f } };
-        Vertex E = { {-1.0f,  1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } };
-        Vertex F = { { 1.0f,  1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } };
-        Vertex G = { { 1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f } };
-        Vertex H = { {-1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f } };
+        Vertex B = { { 1.0f,  1.0f,  1.0f }, { 0.0f, 1.0f, 0.0f } };
+        Vertex C = { { 1.0f, -1.0f,  1.0f }, { 1.0f, 1.0f, 1.0f } };
+        Vertex D = { {-1.0f, -1.0f,  1.0f }, { 0.0f, 0.0f, 1.0f } };
+        Vertex E = { {-1.0f,  1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f } };
+        Vertex F = { { 1.0f,  1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f } };
+        Vertex G = { { 1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 1.0f } };
+        Vertex H = { {-1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, 0.0f } };
 
         Mesh cube;
         cube.tris =
@@ -706,6 +708,8 @@ public:
 
         return true;
     }
+
+    void on_destroy() override { delete[] depth_buffer; }
 
     bool on_update(float delta) override
     {
@@ -770,6 +774,10 @@ public:
             model = Mat4::rotate_y(time * 60.0f * 1.5f) * Mat4::rotate_z(time * 30.0f * 1.5f) * Mat4::rotate_x(-time * 45.0f * 1.5f);
             //model = Mat4::rotate_y(sinf(time) * 60.0f * 1.5f);
         }
+        else
+        {
+            model = Mat4::identity();
+        }
 
         view = inverse(camera);
 
@@ -777,25 +785,38 @@ public:
         return true;
     }
 
-    void on_destroy() override {}
-
     void draw_scene()
     {
-        clear_screen(0);
+        clear_screen(make_color(0.5f, 0.5f, 0.5f));
+
+        for (int i = 0; i < screen_width * screen_height; ++i)
+        {
+            depth_buffer[i] = 1.0f;
+        }
 
         Mat4 mvp = proj * view * model;
-        uint8_t c = make_color(1.0f, 0.0f, 0.0f);
 
         for (const Mesh& m : meshes)
         {
             for (const Triangle& t : m.tris)
             {
-                draw_triangle(mvp, t, c++);
+                draw_triangle(mvp, t);
+            }
+        }
+
+        model = inverse(model) * Mat4::scale(0.9f);
+        mvp = proj * view * model;
+
+        for (const Mesh& m : meshes)
+        {
+            for (const Triangle& t : m.tris)
+            {
+                draw_triangle(mvp, t);
             }
         }
     }
 
-    void draw_triangle(const Mat4& mvp, const Triangle& tri, uint8_t c)
+    void draw_triangle(const Mat4& mvp, const Triangle& tri)
     {
         Vec4 clip_coords[3];
 
@@ -823,9 +844,9 @@ public:
         {
             if (wireframe)
             {
-                draw_line(window_coords[0].x, window_coords[0].y, window_coords[1].x, window_coords[1].y, c);
-                draw_line(window_coords[1].x, window_coords[1].y, window_coords[2].x, window_coords[2].y, c);
-                draw_line(window_coords[2].x, window_coords[2].y, window_coords[0].x, window_coords[0].y, c);
+                draw_line(window_coords[0].x, window_coords[0].y, window_coords[1].x, window_coords[1].y, make_color(tri.v[0].c));
+                draw_line(window_coords[1].x, window_coords[1].y, window_coords[2].x, window_coords[2].y, make_color(tri.v[1].c));
+                draw_line(window_coords[2].x, window_coords[2].y, window_coords[0].x, window_coords[0].y, make_color(tri.v[2].c));
             }
             else
             {
@@ -861,9 +882,9 @@ public:
         float area_scale = static_cast<float>(classify(screen_coords));
 
         float ooz[3] = { 1.0f / screen_coords[0].w, 1.0f / screen_coords[1].w, 1.0f / screen_coords[2].w };
-        Vec3 coz[3] = { tri.v[0].c * ooz[0], tri.v[1].c * ooz[1], tri.v[2].c  * ooz[2] };
-        float doz[3] = { screen_coords[0].z * ooz[0], screen_coords[1].z  * ooz[1], screen_coords[2].z  * ooz[2] };
-        float denom = 1.0f / triangle_area(screen_coords);
+        Vec3 coz[3] = { tri.v[0].c * ooz[0], tri.v[1].c * ooz[1], tri.v[2].c * ooz[2] };
+        float doz[3] = { screen_coords[0].z * ooz[0], screen_coords[1].z * ooz[1], screen_coords[2].z * ooz[2] };
+        float denom = 1.0f / triangle_area_2(screen_coords);
 
         for (int y = bounds_min_y; y < bounds_max_y; ++y)
         {
@@ -883,8 +904,13 @@ public:
 
                     float z = 1.0f / (ooz[0] * w0 + ooz[1] * w1 + ooz[2] * w2);
                     float d = (doz[0] * w0 + doz[1] * w1 + doz[2] * w2) * z;
-                    Vec3 color = (coz[0] * w0 + coz[1] * w1 + coz[2] * w2) * z;
-                    set_pixel(x, y, make_color(color));
+
+                    if (d <= depth_buffer[x + (y * screen_width)])
+                    {
+                        depth_buffer[x + (y * screen_width)] = d;
+                        Vec3 color = (coz[0] * w0 + coz[1] * w1 + coz[2] * w2) * z;
+                        set_pixel(x, y, make_color(color));
+                    }
                 }
             }
         }
@@ -899,13 +925,14 @@ public:
     float time = 0.0f;
     bool anim = false;
     bool wireframe = false;
+    float* depth_buffer;
 };
 
 int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
     TestVgfw test_app;
 
-    if (!test_app.initialize(L"Vgfw 3D Renderer", 1280, 720, 1))
+    if (!test_app.initialize(L"Vgfw 3D Renderer", 320, 240, 4))
     {
         exit(EXIT_FAILURE);
     }
