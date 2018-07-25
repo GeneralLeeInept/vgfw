@@ -90,6 +90,22 @@ union Vec3 {
     Vec2 xy() const { return Vec2(x, y); }
 };
 
+Vec3 operator*(const Vec3& a, float s)
+{
+    return Vec3(a.x * s, a.y * s, a.z * s);
+}
+
+Vec3 operator/(const Vec3& a, float s)
+{
+    float denom = 1.0f / s;
+    return a * denom;
+}
+
+Vec3 operator+(const Vec3& a, const Vec3& b)
+{
+    return Vec3(a.x + b.x, a.y + b.y, a.z + b.z);
+}
+
 //===================================================================================================================================================
 //
 // 4d vector
@@ -528,9 +544,15 @@ Mat4 inverse(const Mat4& m)
 // Geometry
 //
 //===================================================================================================================================================
+struct Vertex
+{
+    Vec3 p;
+    Vec3 c;
+};
+
 struct Triangle
 {
-    Vec3 p[3];
+    Vertex v[3];
 };
 
 struct Mesh
@@ -561,6 +583,14 @@ int classify(const Vec4* abc)
     return orient2d(abc[0].xy(), abc[1].xy(), abc[2].xy());
 }
 
+float triangle_area(const Vec4* abc)
+{
+    Vec2 ab = abc[1].xy() - abc[0].xy();
+    Vec2 ac = abc[2].xy() - abc[0].xy();
+    float det = ab.x * ac.y - ac.x * ab.y;
+    return det;
+}
+
 struct Edge
 {
     Vec2 v[2];
@@ -589,8 +619,38 @@ struct Edge
 class TestVgfw : public Vgfw
 {
 public:
+   uint8_t make_color(float r, float g, float b)
+    {
+        int red_bits = (r == 1.0f) ? 7 : static_cast<int>(r * 8);
+        int green_bits = (g == 1.0f) ? 7 : static_cast<int>(g * 8);
+        int blue_bits = (b == 1.0f) ? 3 : static_cast<int>(b * 4);
+        return (red_bits << 5) | (green_bits << 2) | blue_bits;
+    }
+
+    uint8_t make_color(const Vec3& color)
+    {
+        return make_color(color.x, color.y, color.z);
+    }
+
     bool on_create() override
     {
+        // 8-bit truecolor palette
+        uint8_t r3g3b2[768];
+
+        for (int i = 0; i < 256; ++i)
+        {
+            int red_bits = (i >> 5) & 7;
+            int green_bits = (i >> 2) & 7;
+            int blue_bits = i & 0x3;
+
+            r3g3b2[(i * 3) + 0] = (red_bits * 255) / 7;
+            r3g3b2[(i * 3) + 1] = (green_bits * 255) / 7;
+            r3g3b2[(i * 3) + 2] = (blue_bits * 255) / 3;
+        }
+
+        set_palette(r3g3b2);
+
+        // Initialize matrices
         proj = Mat4::projection(90.0f, screen_width / (float)screen_height, 0.1f, 10.0f);
 
         viewport_transform.X.x = screen_width * 0.5f;
@@ -598,22 +658,23 @@ public:
         viewport_transform.Z.z = 0.5f;
         viewport_transform.P.x = screen_width * 0.5f;
         viewport_transform.P.y = screen_height * 0.5f;
-        viewport_transform.P.z = screen_height * 0.5f;
+        viewport_transform.P.z = 0.5f;
 
         model = Mat4::identity();
         camera = Mat4::identity();
         camera.P.z = 5.0f;
 
+        // Create 3D scene
         // clang-format off
-#if 0
-        Vec3 A(-1.0f,  1.0f,  1.0f);
-        Vec3 B( 1.0f,  1.0f,  1.0f);
-        Vec3 C( 1.0f, -1.0f,  1.0f);
-        Vec3 D(-1.0f, -1.0f,  1.0f);
-        Vec3 E(-1.0f,  1.0f, -1.0f);
-        Vec3 F( 1.0f,  1.0f, -1.0f);
-        Vec3 G( 1.0f, -1.0f, -1.0f);
-        Vec3 H(-1.0f, -1.0f, -1.0f);
+#if 1
+        Vertex A = { {-1.0f,  1.0f,  1.0f }, { 1.0f, 0.0f, 0.0f } };
+        Vertex B = { { 1.0f,  1.0f,  1.0f }, { 1.0f, 0.0f, 0.0f } };
+        Vertex C = { { 1.0f, -1.0f,  1.0f }, { 0.0f, 1.0f, 0.0f } };
+        Vertex D = { {-1.0f, -1.0f,  1.0f }, { 0.0f, 1.0f, 0.0f } };
+        Vertex E = { {-1.0f,  1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } };
+        Vertex F = { { 1.0f,  1.0f, -1.0f }, { 0.0f, 0.0f, 1.0f } };
+        Vertex G = { { 1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f } };
+        Vertex H = { {-1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f } };
 
         Mesh cube;
         cube.tris =
@@ -634,9 +695,9 @@ public:
 
         meshes.push_back(cube);
 #else
-        Vec3 A( 0.f,  sqrtf(0.5f), 0.f);
-        Vec3 B(-1.f, -sqrtf(0.5f), 0.f);
-        Vec3 C( 1.f, -sqrtf(0.5f), 0.f);
+        Vertex A = { {  0.f,  sqrtf(0.5f), 0.f }, { 1.0f, 0.0f, 0.0f } };
+        Vertex B = { { -1.f, -sqrtf(0.5f), 0.f }, { 0.0f, 1.0f, 0.0f } };
+        Vertex C = { {  1.f, -sqrtf(0.5f), 0.f }, { 0.0f, 0.0f, 1.0f } };
 
         Mesh triangle = { { { A, B, C } } };
         meshes.push_back(triangle);
@@ -707,6 +768,7 @@ public:
             }
 
             model = Mat4::rotate_y(time * 60.0f * 1.5f) * Mat4::rotate_z(time * 30.0f * 1.5f) * Mat4::rotate_x(-time * 45.0f * 1.5f);
+            //model = Mat4::rotate_y(sinf(time) * 60.0f * 1.5f);
         }
 
         view = inverse(camera);
@@ -722,7 +784,7 @@ public:
         clear_screen(0);
 
         Mat4 mvp = proj * view * model;
-        uint8_t c = 1;
+        uint8_t c = make_color(1.0f, 0.0f, 0.0f);
 
         for (const Mesh& m : meshes)
         {
@@ -739,7 +801,7 @@ public:
 
         for (int i = 0; i < 3; ++i)
         {
-            clip_coords[i] = mvp * Vec4(tri.p[i], 1.0f);
+            clip_coords[i] = mvp * Vec4(tri.v[i].p, 1.0f);
         }
 
         Vec4 ndc_coords[3];
@@ -767,12 +829,12 @@ public:
             }
             else
             {
-                fill_triangle(window_coords, c);
+                fill_triangle(window_coords, tri);
             }
         }
     }
 
-    void fill_triangle(Vec4* screen_coords, uint8_t c)
+    void fill_triangle(Vec4* screen_coords, const Triangle& tri)
     {
         Edge e01(screen_coords[0].xy(), screen_coords[1].xy());
         Edge e12(screen_coords[1].xy(), screen_coords[2].xy());
@@ -798,15 +860,31 @@ public:
 
         float area_scale = static_cast<float>(classify(screen_coords));
 
+        float ooz[3] = { 1.0f / screen_coords[0].w, 1.0f / screen_coords[1].w, 1.0f / screen_coords[2].w };
+        Vec3 coz[3] = { tri.v[0].c * ooz[0], tri.v[1].c * ooz[1], tri.v[2].c  * ooz[2] };
+        float doz[3] = { screen_coords[0].z * ooz[0], screen_coords[1].z  * ooz[1], screen_coords[2].z  * ooz[2] };
+        float denom = 1.0f / triangle_area(screen_coords);
+
         for (int y = bounds_min_y; y < bounds_max_y; ++y)
         {
             for (int x = bounds_min_x; x < bounds_max_x; ++x)
             {
                 Vec2 p(x, y);
 
-                if (e01(p) * area_scale >= 0.0f && e12(p) * area_scale >= 0.0f && e20(p) * area_scale >= 0.0f)
+                float w01 = e01(p);
+                float w12 = e12(p);
+                float w20 = e20(p);
+
+                if (w01 * area_scale >= 0.0f && w12 * area_scale >= 0.0f && w20 * area_scale >= 0.0f)
                 {
-                    set_pixel(x, y, c);
+                    float w0 = w12 * denom;
+                    float w1 = w20 * denom;
+                    float w2 = w01 * denom;
+
+                    float z = 1.0f / (ooz[0] * w0 + ooz[1] * w1 + ooz[2] * w2);
+                    float d = (doz[0] * w0 + doz[1] * w1 + doz[2] * w2) * z;
+                    Vec3 color = (coz[0] * w0 + coz[1] * w1 + coz[2] * w2) * z;
+                    set_pixel(x, y, make_color(color));
                 }
             }
         }
