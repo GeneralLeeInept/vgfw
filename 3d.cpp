@@ -424,6 +424,13 @@ union Mat4 {
 
         return m;
     }
+
+    static Mat4 translate(const Vec3& t)
+    {
+        Mat4 m = identity();
+        m.P = Vec4(t, 1.0f);
+        return m;
+    }
 };
 
 Mat4 operator*(const Mat4& a, const Mat4& b)
@@ -750,31 +757,39 @@ public:
     {
         Mesh cube;
 
+        // clang-format off
         cube.vertex_buffer = {
-            { { -1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f } }, // 0
-            { { 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },     { { 1.0f, -1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
-            { { -1.0f, -1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } },
+            { { -0.5f,  0.5f,  0.5f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f } }, // 0
+            { {  0.5f,  0.5f,  0.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },
+            { {  0.5f, -0.5f,  0.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
+            { { -0.5f, -0.5f,  0.5f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } },
 
-            { { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } }, // 4
-            { { 1.0f, 1.0f, -1.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },    { { 1.0f, -1.0f, -1.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },
-            { { 1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },
+            { {  0.5f,  0.5f,  0.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } }, // 4
+            { {  0.5f,  0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },
+            { {  0.5f, -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },
+            { {  0.5f, -0.5f,  0.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },
 
-            { { 1.0f, 1.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f } }, // 8
-            { { -1.0f, 1.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 0.0f } },  { { -1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 1.0f } },
-            { { 1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 1.0f } },
+            { {  0.5f,  0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f } }, // 8
+            { { -0.5f,  0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 0.0f } },
+            { { -0.5f, -0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 1.0f } },
+            { {  0.5f, -0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 1.0f } },
 
-            { { -1.0f, 1.0f, -1.0f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } }, // 12
-            { { -1.0f, 1.0f, 1.0f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },   { { -1.0f, -1.0f, 1.0f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },
-            { { -1.0f, -1.0f, -1.0f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },
+            { { -0.5f,  0.5f, -0.5f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } }, // 12
+            { { -0.5f,  0.5f,  0.5f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },
+            { { -0.5f, -0.5f,  0.5f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },
+            { { -0.5f, -0.5f, -0.5f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },
 
-            { { -1.0f, 1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } }, // 16
-            { { 1.0f, 1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f } },    { { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 1.0f } },
-            { { -1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },
+            { { -0.5f,  0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } }, // 16
+            { {  0.5f,  0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f } },
+            { {  0.5f,  0.5f,  0.5f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 1.0f } },
+            { { -0.5f,  0.5f,  0.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },
 
-            { { -1.0f, -1.0f, 1.0f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } }, // 20
-            { { 1.0f, -1.0f, 1.0f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f } },   { { 1.0f, -1.0f, -1.0f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 1.0f } },
-            { { -1.0f, -1.0f, -1.0f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 1.0f } }
+            { { -0.5f, -0.5f,  0.5f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } }, // 20
+            { {  0.5f, -0.5f,  0.5f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f } },
+            { {  0.5f, -0.5f, -0.5f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 1.0f } },
+            { { -0.5f, -0.5f, -0.5f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 1.0f } }
         };
+        // clang-format on
 
         cube.index_buffer = { 0,  3,  1,  1,  3,  2,  4,  7,  5,  5,  7,  6,  8,  11, 9,  9,  11, 10,
                               12, 15, 13, 13, 15, 14, 16, 19, 17, 17, 19, 18, 20, 23, 21, 21, 23, 22 };
@@ -810,9 +825,9 @@ private:
 
         if (ret)
         {
-            for (const auto& shape: shapes)
+            for (const auto& shape : shapes)
             {
-                for (const auto& index: shape.mesh.indices)
+                for (const auto& index : shape.mesh.indices)
                 {
                     Vertex v;
                     v.p.x = attrib.vertices[3 * index.vertex_index + 0];
@@ -841,6 +856,7 @@ struct MeshRef
     Mat4 transform;
     Mesh* mesh;
     Texture* texture;
+    bool visible;
 };
 
 //===================================================================================================================================================
@@ -897,21 +913,29 @@ public:
         camera = Mat4::identity();
         camera.P.z = 5.0f;
 
-        // Load textures
-        rick = texture_catalog.get("textures/rick.png");
-
         // Create 3D scene
-        MeshRef cube1;
-        cube1.mesh = mesh_catalog.get("models/dragon/dragon_model.obj");
-        cube1.texture = texture_catalog.get("models/dragon/DefaultMaterial_basecolor.png");
-        cube1.transform = Mat4::identity();
-        scene.push_back(cube1);
+        MeshRef dragon;
+        dragon.mesh = mesh_catalog.get("models/dragon/dragon_model.obj");
+        dragon.texture = texture_catalog.get("models/dragon/DefaultMaterial_basecolor.png");
+        dragon.transform = Mat4::identity();
+        dragon.visible = true;
+        scene.push_back(dragon);
 
-        MeshRef cube2;
-        cube2.mesh = mesh_catalog.get("_cube");
-        cube2.texture = texture_catalog.get("textures/checker_board.png");
-        cube2.transform = Mat4::identity();
-        scene.push_back(cube2);
+        MeshRef cube;
+        cube.mesh = mesh_catalog.get("_cube");
+        cube.texture = texture_catalog.get("textures/checker_board.png");
+        cube.transform = Mat4::identity();
+        cube.visible = true;
+        scene.push_back(cube);
+
+        for (int i = 0; i < 8; ++i)
+        {
+            MeshRef rick;
+            rick.mesh = mesh_catalog.get("_cube");
+            rick.texture = texture_catalog.get("textures/rick.png");
+            rick.visible = false;
+            scene.push_back(rick);
+        }
 
         return true;
     }
@@ -937,7 +961,10 @@ public:
 
         if (m_keys[L'R'].pressed)
         {
-            rick_roll = !rick_roll;
+            for (MeshRef& mesh_ref : scene)
+            {
+                mesh_ref.visible = !mesh_ref.visible;
+            }
         }
 
         if (anim)
@@ -956,6 +983,12 @@ public:
 
         scene[1].transform = inverse(scene[0].transform);
 
+        for (size_t i = 2; i < scene.size(); ++i)
+        {
+            scene[i].transform = Mat4::rotate_x(cosf(time * 0.25f) * 360.0f) * Mat4::rotate_y(sinf(time * 0.25f) * 360.0f) * Mat4::rotate_y((i -2) * 45.0f) *
+                                 Mat4::translate(Vec3(2.0f + sinf(time), 0.0f, 0.0f)) * Mat4::rotate_y(sinf(time) * sinf(time) * 360.0f) * Mat4::rotate_z(cosf(time) * cosf(time) * 360.0f);
+        }
+
         view = inverse(camera);
 
         draw_scene();
@@ -973,16 +1006,19 @@ public:
 
         for (const MeshRef& mesh_ref : scene)
         {
-            Mat4 mvp = proj * view * mesh_ref.transform;
-            bind_texture(rick_roll ? rick : mesh_ref.texture);
-
-            for (size_t i = 0; i < mesh_ref.mesh->index_buffer.size(); i += 3)
+            if (mesh_ref.visible)
             {
-                size_t i0 = mesh_ref.mesh->index_buffer[i];
-                size_t i1 = mesh_ref.mesh->index_buffer[i + 1];
-                size_t i2 = mesh_ref.mesh->index_buffer[i + 2];
-                draw_triangle(mvp, mesh_ref.transform, mesh_ref.mesh->vertex_buffer[i0], mesh_ref.mesh->vertex_buffer[i1],
-                              mesh_ref.mesh->vertex_buffer[i2]);
+                Mat4 mvp = proj * view * mesh_ref.transform;
+                bind_texture(mesh_ref.texture);
+
+                for (size_t i = 0; i < mesh_ref.mesh->index_buffer.size(); i += 3)
+                {
+                    size_t i0 = mesh_ref.mesh->index_buffer[i];
+                    size_t i1 = mesh_ref.mesh->index_buffer[i + 1];
+                    size_t i2 = mesh_ref.mesh->index_buffer[i + 2];
+                    draw_triangle(mvp, mesh_ref.transform, mesh_ref.mesh->vertex_buffer[i0], mesh_ref.mesh->vertex_buffer[i1],
+                                  mesh_ref.mesh->vertex_buffer[i2]);
+                }
             }
         }
 
@@ -1112,17 +1148,15 @@ public:
     bool anim = true;
     bool wireframe = false;
     bool filter_textures = true;
-    bool rick_roll = false;
     std::unique_ptr<float[]> depth_buffer;
     Texture* texture = nullptr;
-    Texture* rick = nullptr;
 };
 
 int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
     TestVgfw test_app;
 
-    if (!test_app.initialize(L"Vgfw 3D Renderer", 320, 240, 3))
+    if (!test_app.initialize(L"Vgfw 3D Renderer", 1024, 768, 1))
     {
         exit(EXIT_FAILURE);
     }
