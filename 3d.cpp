@@ -1,11 +1,19 @@
 #include "vgfw.h"
 
+#include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <map>
+#include <memory>
+#include <string>
 #include <vector>
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
 #include "stb_image.h"
+
+#define TINYOBJLOADER_IMPLEMENTATION // define this in only *one* .cc
+#include "tiny_obj_loader.h"
 
 //===================================================================================================================================================
 //
@@ -574,45 +582,6 @@ Mat4 inverse(const Mat4& m)
 // Geometry
 //
 //===================================================================================================================================================
-struct Vertex
-{
-    Vec3 p;
-    Vec3 n;
-    Vec2 uv;
-};
-
-struct Triangle
-{
-    Vertex v[3];
-};
-
-struct Mesh
-{
-    std::vector<Triangle> tris;
-};
-
-// Given a directed line segment from a->b and a point c check
-// which side of a->b c lies on:
-//  -1 = right side
-//   0 = colinear
-//   1 = left side
-int orient2d(const Vec2& a, const Vec2& b, const Vec2& c)
-{
-    Vec2 ab = b - a;
-    Vec2 ac = c - a;
-    float det = ab.x * ac.y - ac.x * ab.y;
-    return (det > 0.0f) ? 1 : ((det < 0.0f) ? -1 : 0);
-}
-
-// Given an array of 3 screen space coordinates determine
-// winding of the triangle:
-// -1 = clockwise
-//  0 = degenerate
-//  1 = counter-clockwise
-int classify(const Vec4* abc)
-{
-    return orient2d(abc[0].xy(), abc[1].xy(), abc[2].xy());
-}
 
 // Given an array of 3 screen space coordinates return twice the area
 // of the triangle they form.
@@ -622,6 +591,17 @@ float triangle_area_2(const Vec4* abc)
     Vec2 ac = abc[2].xy() - abc[0].xy();
     float det = ab.x * ac.y - ac.x * ab.y;
     return det;
+}
+
+// Given an array of 3 screen space coordinates determine
+// winding of the triangle:
+// -1 = clockwise
+//  0 = degenerate
+//  1 = counter-clockwise
+int classify(const Vec4* abc)
+{
+    float area_2 = triangle_area_2(abc);
+    return area_2 > 0.0f ? 1 : (area_2 < 0.0f ? -1 : 0);
 }
 
 struct Edge
@@ -646,6 +626,225 @@ struct Edge
 
 //===================================================================================================================================================
 //
+// Graphical elements
+//
+//===================================================================================================================================================
+struct Texture
+{
+    int width;
+    int height;
+    uint8_t* texels = nullptr;
+
+    static std::unique_ptr<Texture> load(const char* filename)
+    {
+        int comp;
+        std::unique_ptr<Texture> tex = std::make_unique<Texture>();
+        tex->texels = stbi_load(filename, &tex->width, &tex->height, &comp, 3);
+
+        if (!tex->texels)
+        {
+            tex->width = 1;
+            tex->height = 1;
+            tex->texels = static_cast<uint8_t*>(STBI_MALLOC(3));
+            tex->texels[0] = 1.0f;
+            tex->texels[1] = 0.0f;
+            tex->texels[2] = 1.0f;
+        }
+
+        return tex;
+    }
+
+    ~Texture()
+    {
+        if (texels)
+        {
+            stbi_image_free(texels);
+        }
+    }
+
+    Vec3 lookup(int x, int y)
+    {
+        float r = texels[((x + y * width) * 3) + 0] / 255.0f;
+        float g = texels[((x + y * width) * 3) + 1] / 255.0f;
+        float b = texels[((x + y * width) * 3) + 2] / 255.0f;
+        return Vec3(r, g, b);
+    }
+
+    Vec3 sample(const Vec2& uv)
+    {
+        float w;
+        Vec2 s;
+        s.x = modff(uv.x, &w);
+        s.y = modff(uv.y, &w);
+        int x = static_cast<int>(s.x * (width - 1) + 0.5f) & (width - 1);
+        int y = static_cast<int>(s.y * (height - 1) + 0.5f) & (height - 1);
+        return lookup(x, y);
+    }
+
+    Vec3 sample_box(const Vec2& uv)
+    {
+        float w;
+        Vec2 s;
+        s.x = modff(uv.x, &w);
+        s.y = modff(uv.y, &w);
+
+        float tx = s.x * (width - 1);
+        float ty = s.y * (height - 1);
+
+        int min_x = static_cast<int>(floorf(tx)) & (width - 1);
+        int min_y = static_cast<int>(floorf(ty)) & (width - 1);
+        int max_x = static_cast<int>(ceilf(tx)) & (width - 1);
+        int max_y = static_cast<int>(ceilf(ty)) & (width - 1);
+
+        Vec3 samples[4];
+        samples[0] = lookup(min_x, min_y);
+        samples[1] = lookup(max_x, min_y);
+        samples[2] = lookup(min_x, max_y);
+        samples[3] = lookup(max_x, max_y);
+
+        float wx = tx - floorf(tx);
+        float wy = ty - floorf(ty);
+        return lerp(lerp(samples[0], samples[1], wx), lerp(samples[2], samples[3], wx), wy);
+    }
+};
+
+class TextureCatalog
+{
+public:
+    Texture* get(const char* filename)
+    {
+        std::string canonical = filename;
+        std::transform(canonical.begin(), canonical.end(), canonical.begin(), ::tolower);
+        Collection::iterator it = m_textures.lower_bound(canonical);
+
+        if (it == m_textures.end() || it->first != canonical)
+        {
+            it = m_textures.insert(it, std::move(std::make_pair(canonical, Texture::load(filename))));
+        }
+
+        return it->second.get();
+    }
+
+private:
+    typedef std::map<std::string, std::unique_ptr<Texture>> Collection;
+    Collection m_textures;
+};
+
+struct Vertex
+{
+    Vec3 p;
+    Vec3 n;
+    Vec2 uv;
+};
+
+struct Mesh
+{
+    std::vector<Vertex> vertex_buffer;
+    std::vector<size_t> index_buffer;
+};
+
+class MeshCatalog
+{
+public:
+    MeshCatalog()
+    {
+        Mesh cube;
+
+        cube.vertex_buffer = {
+            { { -1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f } }, // 0
+            { { 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },     { { 1.0f, -1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },
+            { { -1.0f, -1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } },
+
+            { { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } }, // 4
+            { { 1.0f, 1.0f, -1.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },    { { 1.0f, -1.0f, -1.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },
+            { { 1.0f, -1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },
+
+            { { 1.0f, 1.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f } }, // 8
+            { { -1.0f, 1.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 0.0f } },  { { -1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 1.0f } },
+            { { 1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 1.0f } },
+
+            { { -1.0f, 1.0f, -1.0f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } }, // 12
+            { { -1.0f, 1.0f, 1.0f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },   { { -1.0f, -1.0f, 1.0f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },
+            { { -1.0f, -1.0f, -1.0f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },
+
+            { { -1.0f, 1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } }, // 16
+            { { 1.0f, 1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f } },    { { 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 1.0f } },
+            { { -1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },
+
+            { { -1.0f, -1.0f, 1.0f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } }, // 20
+            { { 1.0f, -1.0f, 1.0f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f } },   { { 1.0f, -1.0f, -1.0f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 1.0f } },
+            { { -1.0f, -1.0f, -1.0f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 1.0f } }
+        };
+
+        cube.index_buffer = { 0,  3,  1,  1,  3,  2,  4,  7,  5,  5,  7,  6,  8,  11, 9,  9,  11, 10,
+                              12, 15, 13, 13, 15, 14, 16, 19, 17, 17, 19, 18, 20, 23, 21, 21, 23, 22 };
+
+        m_meshes["_cube"] = std::move(cube);
+    }
+
+    Mesh* get(const char* filename)
+    {
+        std::string canonical = filename;
+        std::transform(canonical.begin(), canonical.end(), canonical.begin(), ::tolower);
+        Collection::iterator it = m_meshes.lower_bound(canonical);
+
+        if (it == m_meshes.end() || it->first != canonical)
+        {
+            it = m_meshes.insert(it, std::move(std::make_pair(canonical, load(filename))));
+        }
+
+        return &it->second;
+    }
+
+private:
+    Mesh load(const char* filename)
+    {
+        tinyobj::attrib_t attrib;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+
+        std::string err;
+        bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &err, filename);
+
+        Mesh mesh;
+
+        if (ret)
+        {
+            for (const auto& shape: shapes)
+            {
+                for (const auto& index: shape.mesh.indices)
+                {
+                    Vertex v;
+                    v.p.x = attrib.vertices[3 * index.vertex_index + 0];
+                    v.p.y = attrib.vertices[3 * index.vertex_index + 1];
+                    v.p.z = attrib.vertices[3 * index.vertex_index + 2];
+                    v.n.x = attrib.normals[3 * index.normal_index + 0];
+                    v.n.y = attrib.normals[3 * index.normal_index + 1];
+                    v.n.z = attrib.normals[3 * index.normal_index + 2];
+                    v.uv.x = attrib.texcoords[2 * index.texcoord_index + 0];
+                    v.uv.y = 1.0f - attrib.texcoords[2 * index.texcoord_index + 1];
+                    mesh.index_buffer.push_back(mesh.vertex_buffer.size());
+                    mesh.vertex_buffer.push_back(v);
+                }
+            }
+        }
+
+        return std::move(mesh);
+    }
+
+    typedef std::map<std::string, Mesh> Collection;
+    Collection m_meshes;
+};
+
+struct MeshRef
+{
+    Mat4 transform;
+    Mesh* mesh;
+    Texture* texture;
+};
+
+//===================================================================================================================================================
+//
 // Application
 //
 //===================================================================================================================================================
@@ -662,93 +861,7 @@ public:
 
     uint8_t make_color(const Vec3& color) { return make_color(color.x, color.y, color.z); }
 
-    struct Texture
-    {
-        ~Texture()
-        {
-            if (texels)
-            {
-                stbi_image_free(texels);
-            }
-        }
-
-        int width;
-        int height;
-        uint8_t* texels = nullptr;
-    };
-
-    Texture bricks;
-    Texture rick;
-    Texture checkerboard;
-
-    int texture_width, texture_height;
-    uint8_t* texels = nullptr;
-
-    void load_texture(const char* path, Texture* tex)
-    {
-        int comp;
-        tex->texels = stbi_load(path, &tex->width, &tex->height, &comp, 3);
-    }
-
-    void bind_texture(Texture* tex)
-    {
-        if (tex)
-        {
-            texture_width = tex->width;
-            texture_height = tex->height;
-            texels = tex->texels;
-        }
-        else
-        {
-            texture_width = 0;
-            texture_height = 0;
-            texels = nullptr;
-        }
-    }
-    Vec3 tex_lookup(int x, int y)
-    {
-        float r = texels[((x + y * texture_width) * 3) + 0] / 255.0f;
-        float g = texels[((x + y * texture_width) * 3) + 1] / 255.0f;
-        float b = texels[((x + y * texture_width) * 3) + 2] / 255.0f;
-        return Vec3(r, g, b);
-    }
-
-    Vec3 sample_texture(const Vec2& uv)
-    {
-        float w;
-        Vec2 s;
-        s.x = modff(uv.x, &w);
-        s.y = modff(uv.y, &w);
-        int x = static_cast<int>(s.x * (texture_width - 1) + 0.5f) & (texture_width - 1);
-        int y = static_cast<int>(s.y * (texture_height - 1) + 0.5f) & (texture_height - 1);
-        return tex_lookup(x, y);
-    }
-
-    Vec3 sample_texture_box(const Vec2& uv)
-    {
-        float w;
-        Vec2 s;
-        s.x = modff(uv.x, &w);
-        s.y = modff(uv.y, &w);
-
-        float tx = s.x * (texture_width - 1);
-        float ty = s.y * (texture_height - 1);
-
-        int min_x = static_cast<int>(floorf(tx)) & (texture_width - 1);
-        int min_y = static_cast<int>(floorf(ty)) & (texture_width - 1);
-        int max_x = static_cast<int>(ceilf(tx)) & (texture_width - 1);
-        int max_y = static_cast<int>(ceilf(ty)) & (texture_width - 1);
-
-        Vec3 samples[4];
-        samples[0] = tex_lookup(min_x, min_y);
-        samples[1] = tex_lookup(max_x, min_y);
-        samples[2] = tex_lookup(min_x, max_y);
-        samples[3] = tex_lookup(max_x, max_y);
-
-        float wx = tx - floorf(tx);
-        float wy = ty - floorf(ty);
-        return lerp(lerp(samples[0], samples[1], wx), lerp(samples[2], samples[3], wx), wy);
-    }
+    void bind_texture(Texture* tex) { texture = tex; }
 
     bool on_create() override
     {
@@ -769,7 +882,7 @@ public:
         set_palette(r3g3b2);
 
         // Create depth buffer
-        depth_buffer = new float[screen_width * screen_height];
+        depth_buffer = std::make_unique<float[]>(screen_width * screen_height);
 
         // Initialize matrices
         proj = Mat4::projection(90.0f, screen_width / (float)screen_height, 0.1f, 10.0f);
@@ -781,73 +894,29 @@ public:
         viewport_transform.P.y = screen_height * 0.5f;
         viewport_transform.P.z = 0.5f;
 
-        model = Mat4::identity();
         camera = Mat4::identity();
         camera.P.z = 5.0f;
 
         // Load textures
-        load_texture("textures/checker_board.png", &checkerboard);
-        load_texture("textures/bricks.png", &bricks);
-        load_texture("textures/rick.png", &rick);
+        rick = texture_catalog.get("textures/rick.png");
 
         // Create 3D scene
-        // clang-format off
-        Vertex A = { { -1.0f,  1.0f,  1.0f }, {  0.0f,  0.0f,  1.0f }, { 0.0f, 0.0f } };
-        Vertex B = { {  1.0f,  1.0f,  1.0f }, {  0.0f,  0.0f,  1.0f }, { 1.0f, 0.0f } };
-        Vertex C = { {  1.0f, -1.0f,  1.0f }, {  0.0f,  0.0f,  1.0f }, { 1.0f, 1.0f } };
-        Vertex D = { { -1.0f, -1.0f,  1.0f }, {  0.0f,  0.0f,  1.0f }, { 0.0f, 1.0f } };
+        MeshRef cube1;
+        cube1.mesh = mesh_catalog.get("models/dragon/dragon_model.obj");
+        cube1.texture = texture_catalog.get("models/dragon/DefaultMaterial_basecolor.png");
+        cube1.transform = Mat4::identity();
+        scene.push_back(cube1);
 
-        Vertex E = { {  1.0f,  1.0f,  1.0f }, {  1.0f,  0.0f,  0.0f }, { 0.0f, 0.0f } };
-        Vertex F = { {  1.0f,  1.0f, -1.0f }, {  1.0f,  0.0f,  0.0f }, { 1.0f, 0.0f } };
-        Vertex G = { {  1.0f, -1.0f, -1.0f }, {  1.0f,  0.0f,  0.0f }, { 1.0f, 1.0f } };
-        Vertex H = { {  1.0f, -1.0f,  1.0f }, {  1.0f,  0.0f,  0.0f }, { 0.0f, 1.0f } };
-
-        Vertex I = { {  1.0f,  1.0f, -1.0f }, {  0.0f,  0.0f, -1.0f }, { 0.0f, 0.0f } };
-        Vertex J = { { -1.0f,  1.0f, -1.0f }, {  0.0f,  0.0f, -1.0f }, { 1.0f, 0.0f } };
-        Vertex K = { { -1.0f, -1.0f, -1.0f }, {  0.0f,  0.0f, -1.0f }, { 1.0f, 1.0f } };
-        Vertex L = { {  1.0f, -1.0f, -1.0f }, {  0.0f,  0.0f, -1.0f }, { 0.0f, 1.0f } };
-
-        Vertex M = { { -1.0f,  1.0f, -1.0f }, { -1.0f,  0.0f,  0.0f }, { 0.0f, 0.0f } };
-        Vertex N = { { -1.0f,  1.0f,  1.0f }, { -1.0f,  0.0f,  0.0f }, { 1.0f, 0.0f } };
-        Vertex O = { { -1.0f, -1.0f,  1.0f }, { -1.0f,  0.0f,  0.0f }, { 1.0f, 1.0f } };
-        Vertex P = { { -1.0f, -1.0f, -1.0f }, { -1.0f,  0.0f,  0.0f }, { 0.0f, 1.0f } };
-
-        Vertex Q = { { -1.0f,  1.0f, -1.0f }, {  0.0f,  1.0f,  0.0f }, { 0.0f, 0.0f } };
-        Vertex R = { {  1.0f,  1.0f, -1.0f }, {  0.0f,  1.0f,  0.0f }, { 1.0f, 0.0f } };
-        Vertex S = { {  1.0f,  1.0f,  1.0f }, {  0.0f,  1.0f,  0.0f }, { 1.0f, 1.0f } };
-        Vertex T = { { -1.0f,  1.0f,  1.0f }, {  0.0f,  1.0f,  0.0f }, { 0.0f, 1.0f } };
-
-        Vertex U = { { -1.0f, -1.0f,  1.0f }, {  0.0f, -1.0f,  0.0f }, { 0.0f, 0.0f } };
-        Vertex V = { {  1.0f, -1.0f,  1.0f }, {  0.0f, -1.0f,  0.0f }, { 1.0f, 0.0f } };
-        Vertex W = { {  1.0f, -1.0f, -1.0f }, {  0.0f, -1.0f,  0.0f }, { 1.0f, 1.0f } };
-        Vertex X = { { -1.0f, -1.0f, -1.0f }, {  0.0f, -1.0f,  0.0f }, { 0.0f, 1.0f } };
-
-        Mesh cube;
-        cube.tris = 
-        {{
-            { A, D, B }, { B, D, C },
-            { E, H, F }, { F, H, G },
-            { I, L, J }, { J, L, K },
-            { M, P, N }, { N, P, O },
-            { Q, T, R }, { R, T, S },
-            { U, X, V }, { V, X, W }
-        }};
-
-        meshes.push_back(cube);
-        // clang-format on
+        MeshRef cube2;
+        cube2.mesh = mesh_catalog.get("_cube");
+        cube2.texture = texture_catalog.get("textures/checker_board.png");
+        cube2.transform = Mat4::identity();
+        scene.push_back(cube2);
 
         return true;
     }
 
-    void on_destroy() override
-    {
-        delete[] depth_buffer;
-
-        if (texels)
-        {
-            stbi_image_free(texels);
-        }
-    }
+    void on_destroy() override {}
 
     bool on_update(float delta) override
     {
@@ -881,9 +950,11 @@ public:
             }
         }
 
-        model = Mat4::rotate_y(time * 60.0f * 1.5f) * Mat4::rotate_z(time * 30.0f * 1.5f) * Mat4::rotate_x(-time * 45.0f * 1.5f);
-        model.P.x = 1.5f * sinf(time);
-        model.P.z = 1.5f * cosf(time);
+        scene[0].transform = Mat4::rotate_y(time * 60.0f * 1.5f) * Mat4::rotate_z(time * 30.0f * 1.5f) * Mat4::rotate_x(-time * 45.0f * 1.5f);
+        scene[0].transform.P.x = 1.5f * sinf(time);
+        scene[0].transform.P.z = 1.5f * cosf(time);
+
+        scene[1].transform = inverse(scene[0].transform);
 
         view = inverse(camera);
 
@@ -900,42 +971,31 @@ public:
             depth_buffer[i] = 1.0f;
         }
 
-        Mat4 mvp = proj * view * model;
-
-        bind_texture(rick_roll ? &rick : &bricks);
-
-        for (const Mesh& m : meshes)
+        for (const MeshRef& mesh_ref : scene)
         {
-            for (const Triangle& t : m.tris)
+            Mat4 mvp = proj * view * mesh_ref.transform;
+            bind_texture(rick_roll ? rick : mesh_ref.texture);
+
+            for (size_t i = 0; i < mesh_ref.mesh->index_buffer.size(); i += 3)
             {
-                draw_triangle(mvp, t);
-            }
-        }
-
-        model = inverse(model);
-        mvp = proj * view * model;
-
-        bind_texture(rick_roll ? &rick : &checkerboard);
-
-        for (const Mesh& m : meshes)
-        {
-            for (const Triangle& t : m.tris)
-            {
-                draw_triangle(mvp, t);
+                size_t i0 = mesh_ref.mesh->index_buffer[i];
+                size_t i1 = mesh_ref.mesh->index_buffer[i + 1];
+                size_t i2 = mesh_ref.mesh->index_buffer[i + 2];
+                draw_triangle(mvp, mesh_ref.transform, mesh_ref.mesh->vertex_buffer[i0], mesh_ref.mesh->vertex_buffer[i1],
+                              mesh_ref.mesh->vertex_buffer[i2]);
             }
         }
 
         bind_texture(nullptr);
     }
 
-    void draw_triangle(const Mat4& mvp, const Triangle& tri)
+    void draw_triangle(const Mat4& mvp, const Mat4& model, const Vertex& v0, const Vertex& v1, const Vertex& v2)
     {
         Vec4 clip_coords[3];
 
-        for (int i = 0; i < 3; ++i)
-        {
-            clip_coords[i] = mvp * Vec4(tri.v[i].p, 1.0f);
-        }
+        clip_coords[0] = mvp * Vec4(v0.p, 1.0f);
+        clip_coords[1] = mvp * Vec4(v1.p, 1.0f);
+        clip_coords[2] = mvp * Vec4(v2.p, 1.0f);
 
         Vec4 ndc_coords[3];
 
@@ -962,12 +1022,12 @@ public:
             }
             else
             {
-                fill_triangle(window_coords, tri);
+                fill_triangle(window_coords, model, v0, v1, v2);
             }
         }
     }
 
-    void fill_triangle(Vec4* screen_coords, const Triangle& tri)
+    void fill_triangle(Vec4* screen_coords, const Mat4& model, const Vertex& v0, const Vertex& v1, const Vertex& v2)
     {
         Edge e01(screen_coords[0].xy(), screen_coords[1].xy());
         Edge e12(screen_coords[1].xy(), screen_coords[2].xy());
@@ -995,8 +1055,8 @@ public:
 
         float ooz[3] = { 1.0f / screen_coords[0].w, 1.0f / screen_coords[1].w, 1.0f / screen_coords[2].w };
         float doz[3] = { screen_coords[0].z * ooz[0], screen_coords[1].z * ooz[1], screen_coords[2].z * ooz[2] };
-        Vec3 noz[3] = { tri.v[0].n * ooz[0], tri.v[1].n * ooz[1], tri.v[2].n * ooz[2] };
-        Vec2 uvoz[3] = { tri.v[0].uv * ooz[0], tri.v[1].uv * ooz[1], tri.v[2].uv * ooz[2] };
+        Vec3 noz[3] = { v0.n * ooz[0], v1.n * ooz[1], v2.n * ooz[2] };
+        Vec2 uvoz[3] = { v0.uv * ooz[0], v1.uv * ooz[1], v2.uv * ooz[2] };
 
         float denom = 1.0f / triangle_area_2(screen_coords);
 
@@ -1025,18 +1085,26 @@ public:
                         Vec3 normal = rotate(model, (noz[0] * w0 + noz[1] * w1 + noz[2] * w2) * z);
                         float ndotl = dot(normal, Vec3(0.732f, 0.732f, 0.732f));
                         ndotl = ndotl < 0.0f ? 0.0f : (ndotl > 1.0f ? 1.0f : ndotl);
-                        Vec3 color = Vec3(0.5f, 0.5f, 0.5f) * ndotl + Vec3(0.5f, 0.5f, 0.5f);
-                        Vec2 uv = (uvoz[0] * w0 + uvoz[1] * w1 + uvoz[2] * w2) * z;
-                        set_pixel(x, y, make_color((filter_textures ? sample_texture_box(uv) : sample_texture(uv)) * color));
+                        Vec3 light_color = Vec3(0.5f, 0.5f, 0.5f) * ndotl + Vec3(0.5f, 0.5f, 0.5f);
+                        Vec3 texture_color(1.0f);
+
+                        if (texture)
+                        {
+                            Vec2 uv = (uvoz[0] * w0 + uvoz[1] * w1 + uvoz[2] * w2) * z;
+                            texture_color = filter_textures ? texture->sample_box(uv) : texture->sample(uv);
+                        }
+
+                        set_pixel(x, y, make_color(texture_color * light_color));
                     }
                 }
             }
         }
     }
 
-    std::vector<Mesh> meshes;
+    TextureCatalog texture_catalog;
+    MeshCatalog mesh_catalog;
+    std::vector<MeshRef> scene;
     Mat4 camera;
-    Mat4 model;
     Mat4 view;
     Mat4 proj;
     Mat4 viewport_transform;
@@ -1045,7 +1113,9 @@ public:
     bool wireframe = false;
     bool filter_textures = true;
     bool rick_roll = false;
-    float* depth_buffer;
+    std::unique_ptr<float[]> depth_buffer;
+    Texture* texture = nullptr;
+    Texture* rick = nullptr;
 };
 
 int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
