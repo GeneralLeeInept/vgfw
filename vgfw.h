@@ -193,6 +193,19 @@ public:
         }
     }
 
+    uint8_t get_pixel(uint32_t x, uint32_t y)
+    {
+        uint8_t p = 0;
+
+        if (x < screen_width && y < screen_height)
+        {
+            uint8_t* backbuffer = m_framebuffer[m_frontbuffer ^ 1];
+            p = backbuffer[x + y * screen_width];
+        }
+
+        return p;
+    }
+
     void set_palette(uint32_t rgbx[256])
     {
         for (int p = 0; p < 256; ++p)

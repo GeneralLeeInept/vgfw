@@ -867,7 +867,7 @@ struct MeshRef
 class TestVgfw : public Vgfw
 {
 public:
-    uint8_t make_color(float r, float g, float b)
+    uint8_t pack_color(float r, float g, float b)
     {
         int red_bits = (r == 1.0f) ? 7 : static_cast<int>(r * 8);
         int green_bits = (g == 1.0f) ? 7 : static_cast<int>(g * 8);
@@ -875,7 +875,15 @@ public:
         return (red_bits << 5) | (green_bits << 2) | blue_bits;
     }
 
-    uint8_t make_color(const Vec3& color) { return make_color(color.x, color.y, color.z); }
+    uint8_t pack_color(const Vec3& color) { return pack_color(color.x, color.y, color.z); }
+
+    Vec3 unpack_color(uint8_t c)
+    {
+        int red_bits = (c >> 5) & 7;
+        int green_bits = (c >> 2) & 7;
+        int blue_bits = c & 3;
+        return Vec3(red_bits / 7.0f, green_bits / 7.0f, blue_bits / 3.0f);
+    }
 
     void bind_texture(Texture* tex) { texture = tex; }
 
@@ -997,7 +1005,7 @@ public:
 
     void draw_scene()
     {
-        clear_screen(make_color(0.5f, 0.5f, 0.5f));
+        clear_screen(pack_color(0.5f, 0.5f, 0.5f));
 
         for (int i = 0; i < screen_width * screen_height; ++i)
         {
@@ -1052,9 +1060,9 @@ public:
         {
             if (wireframe)
             {
-                draw_line(window_coords[0].x, window_coords[0].y, window_coords[1].x, window_coords[1].y, make_color(1.0f, 1.0f, 1.0f));
-                draw_line(window_coords[1].x, window_coords[1].y, window_coords[2].x, window_coords[2].y, make_color(1.0f, 1.0f, 1.0f));
-                draw_line(window_coords[2].x, window_coords[2].y, window_coords[0].x, window_coords[0].y, make_color(1.0f, 1.0f, 1.0f));
+                draw_line(window_coords[0].x, window_coords[0].y, window_coords[1].x, window_coords[1].y, pack_color(1.0f, 1.0f, 1.0f));
+                draw_line(window_coords[1].x, window_coords[1].y, window_coords[2].x, window_coords[2].y, pack_color(1.0f, 1.0f, 1.0f));
+                draw_line(window_coords[2].x, window_coords[2].y, window_coords[0].x, window_coords[0].y, pack_color(1.0f, 1.0f, 1.0f));
             }
             else
             {
@@ -1130,7 +1138,9 @@ public:
                             texture_color = filter_textures ? texture->sample_box(uv) : texture->sample(uv);
                         }
 
-                        set_pixel(x, y, make_color(texture_color * light_color));
+                        Vec3 existing_color = unpack_color(get_pixel(x, y));
+                        Vec3 color = lerp(existing_color, texture_color * light_color, 0.75f);
+                        set_pixel(x, y, pack_color(color));
                     }
                 }
             }
