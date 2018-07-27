@@ -1138,8 +1138,9 @@ public:
                             texture_color = filter_textures ? texture->sample_box(uv) : texture->sample(uv);
                         }
 
+                        float alpha = 1.0f;
                         Vec3 existing_color = unpack_color(get_pixel(x, y));
-                        Vec3 color = lerp(existing_color, texture_color * light_color, 0.75f);
+                        Vec3 color = existing_color * (1.0f - alpha) + (texture_color * light_color) * alpha;
                         set_pixel(x, y, pack_color(color));
                     }
                 }
